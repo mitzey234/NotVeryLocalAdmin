@@ -1,0 +1,20 @@
+{
+  "name": "scp-sl-multiserve",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build": "pkg index.js --out-path ./release/"
+  },
+  "author": "Mitzey",
+  "license": "ISC",
+  "dependencies": {
+    "async-exit-hook": "^2.0.1",
+    "chalk": "^4.1.2",
+    "pidusage": "^2.0.21",
+    "winston": "^3.3.3",
+    "winston-daily-rotate-file": "^4.5.5"
+  }
+}
