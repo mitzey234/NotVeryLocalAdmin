@@ -118,17 +118,28 @@ In case you need it, here's an example config for 5 servers on different ports:
 The console in this program also has some commands, note that the console can be a little janky in SSH sessions:
 
 stop - (Usage: stop <server label|UID|port>) Stop a specific server
+
 start - (Usage: start <server label|UID|port>) Start a specific server
+
 restart - (Usage: restart <server label|UID|port>) Restart a specific server
 restartforce | rf | fr - (Usage: fr <server label|UID|port>) Forcibly restarts a specific server, first with sr, then with killing the process if that doesn't work. Future commands might be added for literally deleting the server process.
+
 enable - (Usage: enable <server label|UID|port>) Enable a specific server, saves it to the config too
+
 disable - (Usage: disable <server label|UID|port>) Disable a specific server, saves it to the config too
+
 exec | run - (Usage: run <server label|UID|port> <args>) Sends a console command to the specific server. Everything after the server Identifier is sent to the console as a string so it can be any length
+
 quit | exit - (Usage: quit) Stops all servers and exits.
+
 startAll | sa - (Usage: sa) Starts all the servers that are enabled
+
 stopAll | sta - (Usage: sta) Stops all the servers that are running
+
 restartAll | ra - (Usage: ra) Restarts all the servers that are running or not running (if they are enabled)
+
 enableAll | ea - (Usage: ea) Enables all configured servers, saves to config
+
 disableAll | da - (Usage: da) Disables all configured servers, saves to config
 
 # Future stuffs
