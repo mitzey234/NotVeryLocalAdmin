@@ -37,10 +37,10 @@ if (!fs.existsSync(config.logFolder)) {
 }
 
 if (config.SCPExecutable == null) {
-  console.log("Executable not specified, check config.");
+  console.log(chalk.red("SCP Executable not specified, check config."));
   process.exit();
 } else if (!fs.existsSync(config.SCPExecutable)) {
-  console.log("Error, executable not found.");
+  console.log(chalk.red("SCP Executable not found, check config."));
   process.exit();
 }
 
@@ -110,7 +110,7 @@ const removeRegEx = /[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A
 function newServerTransport (server) {
   return winston.createLogger({
       transports: [
-        new winston.transports.Console({ level: 'info', format: winston.format.combine(Form(), winston.format.printf((info) => {return "[" + currTime() + "] ["+server.name+"] " + `${info.message}`;}))}),
+        new winston.transports.Console({ level: 'info', format: winston.format.combine(Form(), winston.format.printf((info) => {return "[" + currTime2() + "] ["+server.name+"] " + `${info.message}`;}))}),
         new winston.transports.DailyRotateFile({ level: 'verbose', frequency: '24h', datePattern: 'YYYY-MM-DD', filename: path.join(config.logFolder, server.name+"/"+server.name+'-%DATE%.log'), maxsize: config.loggingMaxSize, maxFiles: config.loggingMaxDays, tailable: true, format: winston.format.combine(Form(), winston.format.printf((info) => {return "[" + currTime() + "] ["+server.name+"] ["+info.level.toUpperCase()+"] " + `${info.message.replace(removeRegEx,"")}`;}))})
       ]
   });
@@ -125,6 +125,18 @@ function currTime () {
   while (sec.length < 2) sec = "0" + sec;
   while (min.length < 2) min = "0" + min;
   var str = (parseInt(d.getMonth())+1) + "/" + d.getDate() + " " + d.getHours() + ":" + min + ":" + sec + "." + milli;
+  return str;
+}
+
+function currTime2 () {
+  var d = new Date();
+  var milli = d.getMilliseconds().toString();
+  var sec = d.getSeconds().toString();
+  var min = d.getMinutes().toString();
+  while (milli.length < 3) milli = milli + "0";
+  while (sec.length < 2) sec = "0" + sec;
+  while (min.length < 2) min = "0" + min;
+  var str = (d.getHours() + ":" + min + ":" + sec + "." + milli);
   return str;
 }
 
@@ -148,7 +160,7 @@ var Form = winston.format((info, opts) => {
 
 var logger = winston.createLogger({
     transports: [
-      new winston.transports.Console({ level: 'info', format: winston.format.combine(Form(), winston.format.printf((info) => {return "[" + currTime() + "] " + `${info.message}`;}))}),
+      new winston.transports.Console({ level: 'info', format: winston.format.combine(Form(), winston.format.printf((info) => {return "[" + currTime2() + "] " + `${info.message}`;}))}),
       new winston.transports.DailyRotateFile({ level: 'verbose', frequency: '24h', datePattern: 'YYYY-MM-DD', filename: path.join(config.logFolder, 'Main-%DATE%.log'), maxsize: config.loggingMaxSize, maxFiles: config.loggingMaxDays, tailable: true, format: winston.format.combine(Form(), winston.format.printf((info) => {return "[" + currTime() + "] ["+info.level.toUpperCase()+"] " + `${info.message.replace(removeRegEx,"")}`;}))})
     ]
 });
@@ -181,10 +193,13 @@ function startServer () {
   var base = path.parse(config.SCPExecutable).base;
   var child = spawn((isWin ? "" : "./") + base, ["-batchmode", "-nographics", "-nodedicateddelete", "-port"+this.config.p, "-console"+this.server.port, "-id"+process.pid], {cwd: cwd});
 
-  if (config.logStdio) {
-    child.stdout.on('data', onServerStdout.bind(this));
-    child.stderr.on('data', onServerStderr.bind(this));
-  }
+  if (config.logStdio) child.stdout.on('data', onServerStdout.bind(this));
+  child.stderr.on('data', onServerStderr.bind(this));
+
+  child.on('error', function (err) {
+    logger.error("Error launching server, check your executable!\n", e);
+    this.logger.verbose("Server Executable Error\n", e);
+  });
 
   child.on('exit', function (code, signal) {
     this.logger.info(chalk.red("Server Process Exited with code:"), code, "Signal:", signal);
@@ -781,5 +796,5 @@ stdin.addListener("data", function(d) {
 
 updateInt = setInterval(checkTime, 5000); //Time checked every 5 seconds
 if (config.memoryChecker) memoryInt = setInterval(checkMemory, 60000); //Memory is checked every minute
-console.log("Welcome to "+chalk.green("NotVeryLocalAdmin")+" V1.0.0, console is ready");
+console.log("Welcome to "+chalk.green("NotVeryLocalAdmin")+" V1.0.1, console is ready");
 logger.info(chalk.cyan("NotVeryLocalAdmin Logging Started"));
