@@ -1,0 +1,48 @@
+{
+    "SCPExecutable": "A:/SteamLibrary/SteamApps/common/SCP Secret Laboratory Dedicated Server/SCPSL.exe",
+    "restartTime": {
+        "hours": 4,
+        "minutes": 0
+    },
+    "checkinTime": 5,
+    "serverStartTimeout": 60,
+    "serverRestartReqTimeout": 3,
+    "logFolder": "./Logs",
+    "minimizeLog": true,
+    "logStdio": true,
+    "loggingMaxDays": "30d",
+    "loggingMaxSize": "20m",
+    "memoryChecker": true,
+    "servers": [
+        {
+            "uid": "12345a",
+            "p": 7777,
+            "l": "Server-1",
+            "disabled": false
+        },
+        {
+            "uid": "12345b",
+            "p": 7778,
+            "l": "Server-2",
+            "disabled": true
+        },
+        {
+            "uid": "12345c",
+            "p": 7779,
+            "l": "Server-3",
+            "disabled": true
+        },
+        {
+            "uid": "12345d",
+            "p": 7780,
+            "l": "Server-4",
+            "disabled": true
+        },
+        {
+            "uid": "12345e",
+            "p": 7781,
+            "l": "Server-5",
+            "disabled": true
+        }
+    ]
+}
