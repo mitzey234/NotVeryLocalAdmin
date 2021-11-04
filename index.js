@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+var version = "1.1.0";
 const fs = require("fs");
 const Net = require('net');
 const path = require("path");
@@ -9,6 +10,19 @@ const winston = require('winston');
 const pidusage = require('pidusage');
 const util = require('util');
 require('winston-daily-rotate-file');
+const bent = require('bent');
+const getJSON = bent('json');
+const semver = require('semver');
+var url = "https://api.github.com/repos/mitzey234/NotVeryLocalAdmin/releases/latest";
+getJSON(url, null, {"User-agent":'PostmanRuntime/7.28.3'})
+.then(d => {
+  if (semver.lt(version, semver.clean(d.tag_name))) logger.info(chalk.yellow("New version of NVLA is available! "+d.tag_name+" ("+d.html_url+")"))
+  else if (semver.eq(version, semver.clean(d.tag_name))) logger.info(chalk.green("Running latest NVLA - " + version));
+  else logger.info(chalk.cyan("Running Pre-release Version of NVLA, be careful"));
+})
+.catch(e => {
+  logger.warn("Failed to check for NVLA updates: ", e);
+});
 
 var config;
 
@@ -20,6 +34,11 @@ if (fs.existsSync('config.json')) {
     config = JSON.parse(rawdata);
   } catch (e) {
     console.log("Error reading config", e);
+    process.exit(0);
+  }
+  var check = checkConfig(config)
+  if (check != true) {
+    console.log("Config file error:", check);
     process.exit(0);
   }
 } else {
@@ -77,6 +96,7 @@ var updateInt;
 
 async function createServer (i) {
   var o = {};
+  logger.info("Creating Server Instance: "+ chalk.cyan(config.servers[i].l || config.servers[i].uid));
   o.objectType = "server";
   o.uid = config.servers[i].uid
   o.name = config.servers[i].l || config.servers[i].uid;
@@ -100,7 +120,7 @@ async function createServer (i) {
   o.server.on('connection', onSocket.bind(o));
   o.logger = newServerTransport(o);
   o.logger.verbose("\n\n--- These lines intentionally left bank to help identify logging start ---\n");
-  o.logger.info(chalk.red("Logging Start"));
+  o.logger.info(chalk.red("Logging Started"));
   servers[o.uid] = o;
   checkInitServer();
 }
@@ -165,11 +185,15 @@ var logger = winston.createLogger({
     ]
 });
 
+var firstStart = true;
 function checkInitServer () {
   for (i in config.servers) {
     if (servers[config.servers[i].uid] == null) return;
   }
   //Configs are all loaded and sockets setup, will now start
+  if (firstStart) firstStart = false;
+  else return;
+  logger.info("Created all startup instances");
   startAll();
 }
 
@@ -215,6 +239,10 @@ function startServer () {
     if (this.checkInt != null) {
       clearInterval(this.checkInt);
       this.checkInt = null;
+      if (this.checkInProg != null) {
+        clearTimeout(this.checkInProg);
+        delete this.checkInProg;
+      }
     }
     if (this.forceRest) {
       delete this.forceRest;
@@ -423,7 +451,7 @@ function checkServer () {
   if (!this.ready) return;
   if (this.checkInProg != null) return;
   this.command("list");
-  this.checkInProg = setTimeout(this.checkTimeout, 10000);
+  this.checkInProg = setTimeout(this.checkTimeout, checkTimeouts);
 }
 
 var commandErr = {'-1': "Server socket not initialized"};
@@ -434,6 +462,8 @@ function processCommand (message) {
   this.socket.write(Buffer.concat([toInt32(message.length), Buffer.from(message)]));
 }
 
+var checkTimeouts = 7500; //Amount of time for a server check to time out
+
 function checkTimeout () {
   if (this.objectType != "server") return;
   if (this.proc == null) return;
@@ -441,11 +471,13 @@ function checkTimeout () {
   this.checkInProg = null;
   if (this.checkTimeouts == null) this.checkTimeouts = 0;
   this.checkTimeouts++;
-  if (this.checkTimeouts > 3) {
+  logger.verbose(this.name + " Timed out! - " + checkTimeouts*this.checkTimeouts/1000);
+  this.logger.warn("Server response timeout! - " + checkTimeouts*this.checkTimeouts/1000);
+  if (this.checkTimeouts >= 4) {
     logger.verbose(this.name + " presumed dead! Restarting..");
     this.logger.warn("Server presumed dead! Restarting..");
     this.ready = false;
-    this.restart();
+    this.forceRestart();
   }
 }
 
@@ -517,7 +549,7 @@ function handleServerEvent (code) {
     }
     this.ready = true;
     if (this.checkInt == null) setInterval(this.check, config.checkinTime*1000);
-
+    this.check();
   } else if (code == 22) {
     this[events[code]] = true;
     if (this.restartInProg) {
@@ -548,8 +580,6 @@ function handleServerMessage (m) {
     this.logger.info(m.trim());
   }
 }
-
-for (i in config.servers) createServer(i);
 
 function startAll () {
   logger.info("Starting All Enabled Servers");
@@ -659,6 +689,203 @@ function getServer (hint) {
   }
 }
 
+function checkConfig (conf) {
+  //Returns bool, to be implimented further
+  if (!fs.existsSync(conf.logFolder)) {
+    try {
+      fs.mkdirSync(conf.logFolder);
+    } catch (e) {
+      return "Config Log File error, Could not create log file folder";
+    }
+  }
+  if (conf.SCPExecutable == null) {
+    return "SCP Executable not specified";
+  } else if (!fs.existsSync(conf.SCPExecutable)) {
+    return "SCP Executable not found";
+  }
+
+  return true;
+}
+
+function reloadConfig () {
+  var oldConfig = config;
+  if (fs.existsSync('config.json')) {
+    var pre;
+    var rawdata = fs.readFileSync('config.json');
+    try {
+      pre = JSON.parse(rawdata);
+    } catch (e) {
+      logger.warn("Error reading config, no changes applied", e);
+    }
+    var check = checkConfig(pre);
+    if (check != true) {
+      logger.warn(chalk.red("Error in config file, no changes applied:", check));
+      return;
+    }
+    config = pre;
+  } else {
+    logger.warn("configs not found!")
+    process.exit(0);
+  }
+  for (i in config.servers) if (servers[config.servers[i].uid] == null) createServer(i);
+  var marked = [];
+  for (i in servers) {
+    var test = false;
+    for (x in config.servers) if (config.servers[x].uid == servers[i].uid) {
+      test = true;
+      if (servers[i].config.p != config.servers[x].p && servers[i].proc != null) logger.info(chalk.yellow("Warning: You have changed the port number for " + servers[i].name + ", this change will not be applied until you restart the server."));
+      servers[i].config = config.servers[x];
+      if (servers[i].config.disabled && servers[i].proc != null) {
+        logger.info(servers[i].name + " was disabled via the new config file, applying change..");
+        servers[i].stop();
+      }
+      break;
+    }
+    if (test) continue;
+    else {
+      marked.push(servers[i]);
+    }
+  }
+  if (marked.length > 0) {
+    logger.warn(chalk.yellow("Warning: Active server(s) is missing from config. Is this a mistake? Check server UIDs in your config"));
+    for (i in marked) logger.warn(chalk.yellow("UID: " + marked[i].config.uid, "Label: " + marked[i].name, "Port: " + marked[i].config.p));
+  }
+
+  //if logging setting change
+  if (oldConfig.logFolder != config.logFolder || oldConfig.loggingMaxDays != config.loggingMaxDays || oldConfig.loggingMaxSize != config.loggingMaxSize) {
+    logger.info("Logging system reconfiguring...")
+    for (i in servers) {
+      var server = servers[i];
+      server.logger = newServerTransport(server);
+      server.logger.verbose("\n\n--- These lines intentionally left bank to help identify logging start ---\n");
+      server.logger.info(chalk.red("Logging Start"));
+    }
+    logger = winston.createLogger({
+        transports: [
+          new winston.transports.Console({ level: 'info', format: winston.format.combine(Form(), winston.format.printf((info) => {return "[" + currTime2() + "] " + `${info.message}`;}))}),
+          new winston.transports.DailyRotateFile({ level: 'verbose', frequency: '24h', datePattern: 'YYYY-MM-DD', filename: path.join(config.logFolder, 'Main-%DATE%.log'), maxsize: config.loggingMaxSize, maxFiles: config.loggingMaxDays, tailable: true, format: winston.format.combine(Form(), winston.format.printf((info) => {return "[" + currTime() + "] ["+info.level.toUpperCase()+"] " + `${info.message.replace(removeRegEx,"")}`;}))})
+        ]
+    });
+  }
+
+  //if checkinTime change, redo the intervals
+  if (oldConfig.checkinTime != config.checkinTime) {
+    logger.info("Server check Intervals rebuilding..")
+    for (i in servers) {
+      var server = servers[i];
+      if (server.checkInt != null) {
+        clearInterval(server.checkInt);
+        server.checkInt = setInterval(server.check, config.checkinTime*1000);
+        if (server.checkInProg != null) {
+          clearTimeout(checkInProg);
+          checkInProg = null;
+        }
+        server.check();
+      }
+    }
+  }
+
+  if (config.memoryChecker && memoryInt == null) memoryInt = setInterval(checkMemory, 60000);
+  if (configureRestarts(config.restartRate) == -1) logger.warn(chalk.red("Warning: ")+"restartRate value in config is invalid, check your config.");
+
+  logger.info(chalk.green("Configuration reloaded!"));
+}
+
+//Translates time strings to minutes
+function translateTimeString (s) {
+	s = s.toLowerCase();
+	var mult;
+	var str;
+	if (s.indexOf("h") > -1) {
+		s = parseInt(s.replace("h", ""));
+		mult = 60;
+		if (isNaN(s)) return -1;
+		str = s;
+		if (s>1) str += " hours";
+		else str += " hour";
+	} else if (s.indexOf("mon") > -1) {
+		//Months, not minutes
+		s = parseInt(s.replace("mon", ""));
+		if (isNaN(s)) return -1;
+		mult = 43800;
+		str = s;
+		if (s>1) str += " months";
+		else str += " month";
+	} else if (s.indexOf("m") > -1) {
+		s = parseInt(s.replace("m", ""));
+		if (isNaN(s)) return -1;
+		mult = 1;
+		str = s;
+		if (s>1) str += " minutes";
+		else str += " minute";
+	} else if (s.indexOf("d") > -1) {
+		s = parseInt(s.replace("d", ""));
+		if (isNaN(s)) return -1;
+		mult = 1440;
+		str = s;
+		if (s>1) str += " days";
+		else str += " day";
+	} else if (s.indexOf("y") > -1) {
+		s = parseInt(s.replace("y", ""));
+		if (isNaN(s)) return -1;
+		mult = 525600;
+		str = s;
+		if (s>1) str += " years";
+		else str += " year";
+	} else {
+		return -1;
+	}
+	return {min: s * mult, str: str};
+}
+
+var restartInt;
+//rate: false || null == disabled
+function configureRestarts (rate) {
+  if (rate == false || rate == null) {
+    if (restartInt != null) {
+      clearInterval(restartInt);
+      restartInt = null;
+      logger.info(chalk.cyan("Interval Based Restarts Disabled"));
+    }
+    return;
+  }
+  if (rate == "") {
+    if (restartInt != null) {
+      clearInterval(restartInt);
+      restartInt = null;
+      logger.info(chalk.cyan("Interval Based Restarts Disabled"));
+    }
+    return -1; //Invalid input
+  }
+  rate = translateTimeString(rate);
+  if (rate == -1) {
+    if (restartInt != null) {
+      clearInterval(restartInt);
+      restartInt = null;
+      logger.info(chalk.cyan("Interval Based Restarts Disabled"));
+    }
+    return -1; //Invalid input
+  }
+  logger.info(chalk.cyan("Server restart interval set for " + rate.str))
+  restartInt = setInterval(function () {
+    var date = ((new Date().getMonth()) + "-" + (new Date().getDate()));
+    for (i in servers) {
+      var server = servers[i];
+      if (!server.config.disabled) {
+        logger.verbose(server.name, "Interval Server Restart");
+        server.logger.info(chalk.cyan("Interval Restart in progress"));
+
+        //If the servers are being restarted by this, you probably don't want the daily restart code running too
+        server.lastRestart = date;
+        server.restart();
+      }
+    }
+  }, rate.min*1000*60);
+}
+
+//ToDo:
+//Add list servers command to show all servers and their states
+
 //all start and stop commands are designed to fully sucessed in their task
 //which means hard or soft, the server is going to stop and or restart when you ask it to
 function evaluate (args) {
@@ -742,7 +969,7 @@ function evaluate (args) {
     for (i in servers) servers[i].stop();
   } else if (command == "restartAll" || command == "ra") {
     logger.info("Console restarted all servers");
-    for (i in servers) servers[i].restart();
+    for (i in servers) if (!servers[i].config.disabled) servers[i].restart();
   } else if (command == "enableAll" || command == "ea") {
     logger.info("Console enabled all servers");
     for (i in servers) servers[i].config.disabled = false;
@@ -754,11 +981,19 @@ function evaluate (args) {
       if (servers[i].proc != null) servers[i].stop();
     }
     fs.writeFileSync('config.json', JSON.stringify(config, null, 4));
+  } else if (command == "reload") {
+    logger.info("Reloading Config...");
+    reloadConfig();
+  } else {
+    console.log("Unknown Command: " + chalk.green(command));
   }
 }
 
+var exiting = false;
 function quit () {
-  console.log(chalk.yellow("Process exiting3.."));
+  if (exiting) return
+  exiting = true;
+  console.log(chalk.yellow("Process exiting.."));
   for (i in servers) servers[i].stop();
   clearInterval(updateInt);
   clearInterval(memoryInt);
@@ -793,8 +1028,10 @@ stdin.addListener("data", function(d) {
 		console.log("Failed user input: ", e);
 	}
 });
+console.log("Welcome to "+chalk.green("NotVeryLocalAdmin")+" v"+version+", console is ready");
+logger.info(chalk.cyan("NotVeryLocalAdmin Logging Started"));
 
+for (i in config.servers) createServer(i);
 updateInt = setInterval(checkTime, 5000); //Time checked every 5 seconds
 if (config.memoryChecker) memoryInt = setInterval(checkMemory, 60000); //Memory is checked every minute
-console.log("Welcome to "+chalk.green("NotVeryLocalAdmin")+" V1.0.1, console is ready");
-logger.info(chalk.cyan("NotVeryLocalAdmin Logging Started"));
+if (configureRestarts(config.restartRate) == -1) logger.warn(chalk.red("Warning: ")+"restartRate value in config is invalid, check your config.");

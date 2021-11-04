@@ -52,6 +52,8 @@ loggingMaxSize: Should be a string that tells the log rotation to rotate log fil
 
 memoryChecker: Should be a Boolean value, which controls whether or not to preform memory usage checking
 
+restartRate: Should be a string with a number and time suffix of either m (minutes), h (hours), d (days), mon (mons), or for some reason y (years). Should look something like "5h" for 5 hours. It DOES NOT support combining stuff like "5h2m". This will restart your servers every x amount of time gracefully, it will override the daily scheduled restart. This timer is based on the moment NVLA started, NOT the moment individual servers started. This can be set to Boolean false to disable it.
+
 servers: Should be an array [], of objects. Each object should be a server with the following properties:
 ```
 "uid": "1234abcd", //This should be a unique Identifier that the program can use to differentiate this server if theres servers with the same labels. No two servers should have the same uid
@@ -78,6 +80,7 @@ In case you need it, here's an example config for 5 servers on different ports:
     "loggingMaxDays": "30d",
     "loggingMaxSize": "20m",
     "memoryChecker": true,
+    "restartRate": false,
     "servers": [
         {
             "uid": "12345a",
@@ -89,25 +92,25 @@ In case you need it, here's an example config for 5 servers on different ports:
             "uid": "12345b",
             "p": 7778,
             "l": "Server-2",
-            "disabled": true
+            "disabled": false
         },
         {
             "uid": "12345c",
             "p": 7779,
             "l": "Server-3",
-            "disabled": true
+            "disabled": false
         },
         {
             "uid": "12345d",
             "p": 7780,
             "l": "Server-4",
-            "disabled": true
+            "disabled": false
         },
         {
             "uid": "12345e",
             "p": 7781,
             "l": "Server-5",
-            "disabled": true
+            "disabled": false
         }
     ]
 }
@@ -141,6 +144,8 @@ restartAll | ra - (Usage: ra) Restarts all the servers that are running or not r
 enableAll | ea - (Usage: ea) Enables all configured servers, saves to config
 
 disableAll | da - (Usage: da) Disables all configured servers, saves to config
+
+reload - (Usage: reload) Reloads the whole config file and reconfigures the program live. Servers will not be affected by this function and the function will update log folder paths and such. Servers that are added will be created, servers that are removed will not be deleted until the program is restarted as a safety measure.
 
 # Future stuffs
 
