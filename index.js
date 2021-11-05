@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-var version = "1.1.0";
+var version = "1.1.1";
 const fs = require("fs");
 const Net = require('net');
 const path = require("path");
@@ -14,15 +14,6 @@ const bent = require('bent');
 const getJSON = bent('json');
 const semver = require('semver');
 var url = "https://api.github.com/repos/mitzey234/NotVeryLocalAdmin/releases/latest";
-getJSON(url, null, {"User-agent":'PostmanRuntime/7.28.3'})
-.then(d => {
-  if (semver.lt(version, semver.clean(d.tag_name))) logger.info(chalk.yellow("New version of NVLA is available! "+d.tag_name+" ("+d.html_url+")"))
-  else if (semver.eq(version, semver.clean(d.tag_name))) logger.info(chalk.green("Running latest NVLA - " + version));
-  else logger.info(chalk.cyan("Running Pre-release Version of NVLA, be careful"));
-})
-.catch(e => {
-  logger.warn("Failed to check for NVLA updates: ", e);
-});
 
 var config;
 
@@ -62,6 +53,17 @@ if (config.SCPExecutable == null) {
   console.log(chalk.red("SCP Executable not found, check config."));
   process.exit();
 }
+
+//Version checking AFTER config checking
+getJSON(url, null, {"User-agent":'PostmanRuntime/7.28.3'})
+.then(d => {
+  if (semver.lt(version, semver.clean(d.tag_name))) logger.info(chalk.yellow("New version of NVLA is available! "+d.tag_name+" ("+d.html_url+")"))
+  else if (semver.eq(version, semver.clean(d.tag_name))) logger.info(chalk.green("Running latest NVLA - " + version));
+  else logger.info(chalk.cyan("Running Pre-release Version of NVLA, be careful"));
+})
+.catch(e => {
+  logger.warn("Failed to check for NVLA updates: ", e);
+});
 
 var servers = {};
 var colors = {
@@ -199,11 +201,13 @@ function checkInitServer () {
 
 var startServerErr = {'-1': "Server process already running", '-2': "Server already starting", '-3': "Cannot start, server currently shutting down", '-4': "Server is disabled"};
 function startServer () {
-  if (this.objectType != "server") return;
+  if (this.objectType != "server") return console.trace();
   if (this.proc != null) return -1;
   if (this.startInProg != null) return -2;
   if (this.shutdownInProg != null) return -3;
   if (this.config.disabled) return -4;
+
+  this.uptime = new Date().getTime();
 
   logger.info("Starting " + this.name);
   this.logger.verbose("Server is starting");
@@ -229,20 +233,20 @@ function startServer () {
     this.logger.info(chalk.red("Server Process Exited with code:"), code, "Signal:", signal);
     this.proc = null;
     var handled = false;
+    if (this.checkInt != null) {
+      clearInterval(this.checkInt);
+      delete this.checkInt;
+      if (this.checkInProg != null) {
+        clearTimeout(this.checkInProg);
+        delete this.checkInProg;
+      }
+    }
     if (this.startInProg != null && this.shutdownInProg == null) {
       logger.verbose(this.name, "Exited during startup. Check the executable and logs and verify the server is functional. If your using mods you might need to update or patch.")
       this.logger.warn("Process exited during startup. Check the executable and logs and verify the server is functional. If your using mods you might need to update or patch.")
       clearTimeout(this.startInProg);
       delete this.startInProg;
       handled = true;
-    }
-    if (this.checkInt != null) {
-      clearInterval(this.checkInt);
-      this.checkInt = null;
-      if (this.checkInProg != null) {
-        clearTimeout(this.checkInProg);
-        delete this.checkInProg;
-      }
     }
     if (this.forceRest) {
       delete this.forceRest;
@@ -334,7 +338,7 @@ function onServerStderr (data) {
 }
 
 function startTimeout () {
-  if (this.objectType != "server") return;
+  if (this.objectType != "server") return console.trace();
   logger.verbose(this.name + " start took too long, restarting");
   this.logger.warn("Server start took too long, restarting");
   this.forceRestart();
@@ -342,7 +346,7 @@ function startTimeout () {
 
 var forceStopErr = {'-1': "Server process not running"};
 function forceStop () {
-  if (this.objectType != "server") return;
+  if (this.objectType != "server") return console.trace();
   if (this.proc == null) return -1;
   logger.verbose(this.name + " Forced Shutdown Triggered");
   this.logger.info("Forced Shutdown Triggered");
@@ -352,7 +356,7 @@ function forceStop () {
 
 var stopErr = {'-1': "Server process not running", '-2': "Server process already shutting down"};
 function stopServer () {
-  if (this.objectType != "server") return;
+  if (this.objectType != "server") return console.trace();
   if (this.proc == null) return -1;
   if (this.shutdownInProg != null) return -2;
   this.stopping = true;
@@ -364,7 +368,7 @@ function stopServer () {
 
 function shutdownTimeout () {
   delete this.shutdownInProg;
-  if (this.objectType != "server") return;
+  if (this.objectType != "server") return console.trace();
   logger.verbose(this.name + " shutdown took too long, killing..");
   this.logger.warn("Server shutdown took too long, killing..");
   this.forceStop();
@@ -372,7 +376,7 @@ function shutdownTimeout () {
 
 var forceRestartErr = {'-1': "Restart already in progress"};
 function forceRestart () {
-  if (this.objectType != "server") return;
+  if (this.objectType != "server") return console.trace();
   if (this.restartInProg != null) return -1;
   logger.verbose("Forced " + this.name + " to Restart");
   this.logger.info("Forced Restart Triggered");
@@ -388,7 +392,7 @@ function forceRestart () {
 
 var restartErr = {'-1': "Restart already in progress", '-2': "Server has not started yet", '-3': "Delayed restart already scheduled. Server currently active with players"};
 function restartServer (override) {
-  if (this.objectType != "server") return;
+  if (this.objectType != "server") return console.trace();
   if (this.restartInProg != null) return -1;
   if (this.startInProg != null) return -2;
   if (this.proc != null && this.ready && this.players != null && this.players > 0 && this.restartOnRoundRestart != null && !override) return -3;
@@ -417,7 +421,7 @@ function restartServer (override) {
 }
 
 function restartTimeout () {
-  if (this.objectType != "server") return;
+  if (this.objectType != "server") return console.trace();
   delete this.restartInProg;
   if (this.restartTimeouts == null) this.restartTimeouts = 0;
   this.restartTimeouts++;
@@ -446,7 +450,7 @@ function restartTimeout () {
 }
 
 function checkServer () {
-  if (this.objectType != "server") return;
+  if (this.objectType != "server") return console.trace();
   if (this.proc == null) return;
   if (!this.ready) return;
   if (this.checkInProg != null) return;
@@ -456,7 +460,7 @@ function checkServer () {
 
 var commandErr = {'-1': "Server socket not initialized"};
 function processCommand (message) {
-  if (this.objectType != "server") return;
+  if (this.objectType != "server") return console.trace();
   if (this.socket == null) return -1;
   message = message.trim();
   this.socket.write(Buffer.concat([toInt32(message.length), Buffer.from(message)]));
@@ -465,7 +469,7 @@ function processCommand (message) {
 var checkTimeouts = 7500; //Amount of time for a server check to time out
 
 function checkTimeout () {
-  if (this.objectType != "server") return;
+  if (this.objectType != "server") return console.trace();
   if (this.proc == null) return;
   if (!this.ready) return;
   this.checkInProg = null;
@@ -539,7 +543,7 @@ async function checkTime () {
 }
 
 function handleServerEvent (code) {
-  if (this.objectType != "server") return;
+  if (this.objectType != "server") return console.trace();
   if (code == 16) {
     if (this.startInProg != null) {
       clearTimeout(this.startInProg);
@@ -548,7 +552,7 @@ function handleServerEvent (code) {
       logger.verbose(this.name, "Started Successfully");
     }
     this.ready = true;
-    if (this.checkInt == null) setInterval(this.check, config.checkinTime*1000);
+    if (this.checkInt == null) this.checkInt = setInterval(this.check, config.checkinTime*1000);
     this.check();
   } else if (code == 22) {
     this[events[code]] = true;
@@ -600,7 +604,7 @@ function createSocket () {
 }
 
 function onSocket (socket) {
-  if (this.objectType != "server") return;
+  if (this.objectType != "server") return console.trace();
   if (socket.remoteAddress != "127.0.0.1" && socket.remoteAddress != "::ffff:127.0.0.1") return socket.end();
   if (this.socket != null) return;
   logger.info(this.name, "Socket Connected");
@@ -611,12 +615,12 @@ function onSocket (socket) {
 }
 
 function onSocketEnd () {
-  if (this.objectType != "server") return;
+  if (this.objectType != "server") return console.trace();
   this.socket = null;
 }
 
 function onSocketError (e) {
-  if (this.objectType != "server") return;
+  if (this.objectType != "server") return console.trace();
   try {
     this.socket.end();
   } catch (e) {
@@ -626,7 +630,7 @@ function onSocketError (e) {
 }
 
 function consoleMessage (chunk) {
-  if (this.objectType != "server") return;
+  if (this.objectType != "server") return console.trace();
   let data = [...chunk]
     while (data.length > 0) {
       let code = parseInt(data.shift())
@@ -776,7 +780,7 @@ function reloadConfig () {
       if (server.checkInt != null) {
         clearInterval(server.checkInt);
         server.checkInt = setInterval(server.check, config.checkinTime*1000);
-        if (server.checkInProg != null) {
+        if (server.checkInProg) {
           clearTimeout(checkInProg);
           checkInProg = null;
         }
@@ -838,7 +842,6 @@ function translateTimeString (s) {
 	return {min: s * mult, str: str};
 }
 
-var restartInt;
 //rate: false || null == disabled
 function configureRestarts (rate) {
   if (rate == false || rate == null) {
@@ -884,7 +887,8 @@ function configureRestarts (rate) {
 }
 
 //ToDo:
-//Add list servers command to show all servers and their states
+//Add isolate and unisolate command which will isolate server console output to specific servers
+//add help command ffs
 
 //all start and stop commands are designed to fully sucessed in their task
 //which means hard or soft, the server is going to stop and or restart when you ask it to
@@ -984,6 +988,10 @@ function evaluate (args) {
   } else if (command == "reload") {
     logger.info("Reloading Config...");
     reloadConfig();
+  } else if (command == "list") {
+    var current = new Date().getTime();
+    console.log(chalk.yellow("Server List:"));
+    for (i in servers) console.log("["+(servers[i].proc != null ? chalk.green("ACTIVE") : (servers[i].config.disabled ? chalk.red("DISABLED") : chalk.red("INACTIVE")))+"]\t" + chalk.cyan(servers[i].name + " - " + servers[i].config.p + (servers[i].players != null ? (" - " + servers[i].players + " Players") : "") + (servers[i].proc != null && servers[i].uptime != null ? " - Uptime: " + Math.floor((current - servers[i].uptime)/1000).toString().toHHMMSS() : "")));
   } else {
     console.log("Unknown Command: " + chalk.green(command));
   }
@@ -992,6 +1000,7 @@ function evaluate (args) {
 var exiting = false;
 function quit () {
   if (exiting) return
+  stdin.pause();
   exiting = true;
   console.log(chalk.yellow("Process exiting.."));
   for (i in servers) servers[i].stop();
@@ -1003,6 +1012,18 @@ function quit () {
 
 process.on('SIGINT', quit);
 process.on('SIGQUIT', quit);
+
+String.prototype.toHHMMSS = function () {
+    var sec_num = parseInt(this, 10); // don't forget the second param
+    var hours   = Math.floor(sec_num / 3600);
+    var minutes = Math.floor((sec_num - (hours * 3600)) / 60);
+    var seconds = sec_num - (hours * 3600) - (minutes * 60);
+
+    if (hours   < 10) {hours   = "0"+hours;}
+    if (minutes < 10) {minutes = "0"+minutes;}
+    if (seconds < 10) {seconds = "0"+seconds;}
+    return hours+':'+minutes+':'+seconds;
+}
 
 function checkServersStopped () {
   if (processExit) {
@@ -1030,6 +1051,8 @@ stdin.addListener("data", function(d) {
 });
 console.log("Welcome to "+chalk.green("NotVeryLocalAdmin")+" v"+version+", console is ready");
 logger.info(chalk.cyan("NotVeryLocalAdmin Logging Started"));
+
+var updateInt, memoryInt, restartInt;
 
 for (i in config.servers) createServer(i);
 updateInt = setInterval(checkTime, 5000); //Time checked every 5 seconds
