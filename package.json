@@ -1,12 +1,12 @@
 {
-  "name": "scp-sl-multiserve",
-  "version": "1.0.1",
+  "name": "NotVeryLocalAdmin",
+  "version": "1.1.2",
   "description": "",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
     "test": "echo \"Error: no test specified\" && exit 1",
-    "build": "pkg index.js --out-path ./release/"
+    "build": "pkg ."
   },
   "author": "Mitzey",
   "license": "ISC",
@@ -18,5 +18,16 @@
     "semver": "^7.3.5",
     "winston": "^3.3.3",
     "winston-daily-rotate-file": "^4.5.5"
+  },
+  "bin": {
+    "NotVeryLocalAdmin": "./index.js"
+  },
+  "pkg": {
+    "targets": [
+      "node16-linux-x64",
+      "node16-macos-x64",
+      "node16-win-x64"
+    ],
+    "outputPath": "release"
   }
 }

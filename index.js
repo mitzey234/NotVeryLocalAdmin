@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-var version = "1.1.1";
+var version = "1.1.2";
 const fs = require("fs");
 const Net = require('net');
 const path = require("path");
@@ -15,12 +15,32 @@ const getJSON = bent('json');
 const semver = require('semver');
 var url = "https://api.github.com/repos/mitzey234/NotVeryLocalAdmin/releases/latest";
 
+var configPath = "config.json";
+
+var Conflag = false;
+for (i in process.argv) {
+  console.log(process.argv[i]);
+  if (Conflag) {
+    Conflag = false;
+    if (!fs.existsSync(process.argv[i])) {
+      console.log("Config path does not exist:" + process.argv[i]);
+      process.exit(1);
+    }
+    configPath = process.argv[i];
+    continue;
+  }
+  if (process.argv[i] == "-config") {
+    Conflag = true;
+    continue;
+  }
+}
+
 var config;
 
 var isWin = os.platform() == "win32";
 
-if (fs.existsSync('config.json')) {
-  var rawdata = fs.readFileSync('config.json');
+if (fs.existsSync(configPath)) {
+  var rawdata = fs.readFileSync(configPath);
   try {
     config = JSON.parse(rawdata);
   } catch (e) {
@@ -232,6 +252,8 @@ function startServer () {
   child.on('exit', function (code, signal) {
     this.logger.info(chalk.red("Server Process Exited with code:"), code, "Signal:", signal);
     this.proc = null;
+    delete this.players;
+    delete this.roundStartTime;
     var handled = false;
     if (this.checkInt != null) {
       clearInterval(this.checkInt);
@@ -241,6 +263,7 @@ function startServer () {
         delete this.checkInProg;
       }
     }
+    if (this.uptime != null) delete this.uptime;
     if (this.startInProg != null && this.shutdownInProg == null) {
       logger.verbose(this.name, "Exited during startup. Check the executable and logs and verify the server is functional. If your using mods you might need to update or patch.")
       this.logger.warn("Process exited during startup. Check the executable and logs and verify the server is functional. If your using mods you might need to update or patch.")
@@ -278,13 +301,21 @@ function startServer () {
         delete this.restartOnRoundRestart;
         this.logger.info("Round restart exit detected");
       }
-      this.start();
+      if (fullRestartInProg) {
+        this.logger.info("Round restart rejected for full restart");
+        checkServersForRestart();
+      }
+      if (!fullRestartInProg) this.start();
       handled = true;
     }
     if (this.restartOnRoundRestart) {
       delete this.restartOnRoundRestart;
       this.logger.info("Round restart exit detected");
-      this.start();
+      if (fullRestartInProg) {
+        this.logger.info("Round restart rejected for full restart");
+        checkServersForRestart();
+      }
+      if (!fullRestartInProg) this.start();
       handled = true;
     }
     if (this.shutdownInProg != null) {
@@ -490,7 +521,7 @@ var memVal = false;
 async function checkMemory () {
   //logger.verbose(Math.round(os.freemem() / os.totalmem() * 100) + "%");
   //If system has less than or equal to 100MB of free memory, investigate
-  if (os.freemem() <= 100000000 && memVal == false) {
+  if (os.freemem() <= 500000000 && memVal == false) {
     memVal = true;
     var s = [];
     var SCPSLTotal = 0;
@@ -529,10 +560,12 @@ async function checkMemory () {
 
 //If you want to disable daily restarts, just set hours to a negative number in your config
 async function checkTime () {
+  empt();
   if (new Date().getHours() != config.restartTime.hours || new Date().getMinutes() != config.restartTime.minutes) return;
   var date = ((new Date().getMonth()) + "-" + (new Date().getDate()));
   for (i in servers) {
     var server = servers[i];
+    if (!server.config.disabled && server.players != null && server.players > 0 && emptyTime > 0) emptyTime = 0;
     if (server.lastRestart != date && !server.config.disabled) {
       logger.verbose(server.name, "Scheduled Server Restart");
       server.logger.info(chalk.cyan("Scheduled Restart in progress"));
@@ -540,7 +573,23 @@ async function checkTime () {
       server.restart();
     }
   }
+  emptyTime += 5;
 }
+
+function empt () {
+  for (i in servers) {
+    var server = servers[i];
+    if (!server.config.disabled && server.players != null && server.players > 0 && emptyTime > 0) emptyTime = 0;
+  }
+  emptyTime += 5;
+  if (emptyTime >= 60 && triggerFullRestart) {
+    emptyTime = 0;
+    fullRestart();
+  }
+}
+
+var triggerFullRestart = false;
+var emptyTime = 0;
 
 function handleServerEvent (code) {
   if (this.objectType != "server") return console.trace();
@@ -552,6 +601,7 @@ function handleServerEvent (code) {
       logger.verbose(this.name, "Started Successfully");
     }
     this.ready = true;
+    delete this.roundStartTime;
     if (this.checkInt == null) this.checkInt = setInterval(this.check, config.checkinTime*1000);
     this.check();
   } else if (code == 22) {
@@ -559,7 +609,7 @@ function handleServerEvent (code) {
     if (this.restartInProg) {
       clearTimeout(this.restartInProg);
       delete this.restartInProg;
-      this.restartOnRoundRestart = true;
+      if (!fullRestartInProg) this.restartOnRoundRestart = true;
     }
   } else if (code == 19) {
     if (this.restartInProg) {
@@ -644,16 +694,18 @@ function consoleMessage (chunk) {
         let message = "";
         for (let i = 0; i < m.length; i++) message += String.fromCharCode(m[i])
         if (colors[code]) message = colors[code](message)
-
-        if (message.indexOf("List of players") > -1 && this.checkInProg != null) {
+        if (message.trim() == colors[code]("New round has been started.")) this.roundStartTime = new Date().getTime();
+        if (this.checkInProg != null && message.indexOf("List of players") > -1) {
           this.tempListOfPlayersCatcher = true;
           return this.handleServerMessage(message);
         }
-        if (this.tempListOfPlayersCatcher && message.indexOf("-") > -1 && message.indexOf("@") > -1 && message.indexOf("[") > -1 && message.indexOf("]") > -1 && (message.indexOf("steam") > -1 || message.indexOf("discord") > -1)) {
+        if (this.tempListOfPlayersCatcher) message = message.replaceAll("\n*\n", "*");
+        if (this.tempListOfPlayersCatcher && message.indexOf(":") > -1 && (message.indexOf("@") > -1 || message.indexOf("(no User ID)")) && message.indexOf("[") > -1 && message.indexOf("]") > -1 && (message.indexOf("steam") > -1 || message.indexOf("discord") > -1 || message.indexOf("(no User ID)") > -1)) {
           return;
         } else if (this.tempListOfPlayersCatcher) delete this.tempListOfPlayersCatcher;
         if (message.indexOf("Server WILL restart after next round.") > -1 && this.restartInProg != null) return this.handleServerMessage(message);
         if (message.charAt(0) == "\n") message = message.substring(1,message.length);
+        if (message.indexOf("Welcome to") > -1 && message.length > 1000) message = colors[code]("Welcome to EXILED (ASCII Cleaned to save your logs)");
         this.logger.info(message.trim());
       }
     }
@@ -713,9 +765,9 @@ function checkConfig (conf) {
 
 function reloadConfig () {
   var oldConfig = config;
-  if (fs.existsSync('config.json')) {
+  if (fs.existsSync(configPath)) {
     var pre;
-    var rawdata = fs.readFileSync('config.json');
+    var rawdata = fs.readFileSync(configPath);
     try {
       pre = JSON.parse(rawdata);
     } catch (e) {
@@ -889,8 +941,10 @@ function configureRestarts (rate) {
 //ToDo:
 //Add isolate and unisolate command which will isolate server console output to specific servers
 //add help command ffs
+//add startup params for specifying a config file to use -- needs doc
+//allow changing the server timeout with Configs
 
-//all start and stop commands are designed to fully sucessed in their task
+//all start and stop commands are designed to fully succeed in their task
 //which means hard or soft, the server is going to stop and or restart when you ask it to
 function evaluate (args) {
   args = cleanInput(args);
@@ -941,7 +995,7 @@ function evaluate (args) {
     server.config.disabled = false;
     server.logger.verbose("Server Enabled");
     console.log("Enabled server", server.name);
-    fs.writeFileSync('config.json', JSON.stringify(config, null, 4));
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 4));
   } else if (command == "disable") {
     if (args[0] == null) return console.log("Usage: disable <server label|UID|port>");
     var server = getServer(args[0]);
@@ -951,7 +1005,7 @@ function evaluate (args) {
     server.logger.verbose("Server Disabled");
     if (server.proc) server.stop();
     console.log("Disabled server", server.name);
-    fs.writeFileSync('config.json', JSON.stringify(config, null, 4));
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 4));
   } else if (command == "exec" || command == "run") {
     if (args[0] == null && args[1] == null) return console.log("Usage: exec/run <server label|UID|port> <command>");
     var server = getServer(args[0]);
@@ -977,23 +1031,74 @@ function evaluate (args) {
   } else if (command == "enableAll" || command == "ea") {
     logger.info("Console enabled all servers");
     for (i in servers) servers[i].config.disabled = false;
-    fs.writeFileSync('config.json', JSON.stringify(config, null, 4));
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 4));
   } else if (command == "disableAll" || command == "da") {
     logger.info("Console disabled all servers");
     for (i in servers) {
       servers[i].config.disabled = true;
       if (servers[i].proc != null) servers[i].stop();
     }
-    fs.writeFileSync('config.json', JSON.stringify(config, null, 4));
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 4));
   } else if (command == "reload") {
     logger.info("Reloading Config...");
     reloadConfig();
   } else if (command == "list") {
     var current = new Date().getTime();
     console.log(chalk.yellow("Server List:"));
-    for (i in servers) console.log("["+(servers[i].proc != null ? chalk.green("ACTIVE") : (servers[i].config.disabled ? chalk.red("DISABLED") : chalk.red("INACTIVE")))+"]\t" + chalk.cyan(servers[i].name + " - " + servers[i].config.p + (servers[i].players != null ? (" - " + servers[i].players + " Players") : "") + (servers[i].proc != null && servers[i].uptime != null ? " - Uptime: " + Math.floor((current - servers[i].uptime)/1000).toString().toHHMMSS() : "")));
+    for (i in servers) console.log("["+(servers[i].proc != null ? chalk.green("ACTIVE") : (servers[i].config.disabled ? chalk.red("DISABLED") : chalk.red("INACTIVE")))+"]\t" + chalk.cyan(servers[i].name + " - " + servers[i].config.p + (servers[i].players != null ? (" - " + servers[i].players + " Players") : "") + (servers[i].proc != null && servers[i].uptime != null ? " - Uptime: " + Math.floor((current - servers[i].uptime)/1000).toString().toHHMMSS() : "") + (servers[i].roundStartTime != null ? " - Round Time: " + (Math.floor((current - servers[i].roundStartTime)/1000).toString().toHHMMSS()) : "")));
+  } else if (command == "version" || command == "v") {
+    console.log("Running NVLA - " + version);
+  } else if (command == "fullRestart" || command == "fullr") {
+    var inst = true;
+    for (i in servers) {
+      var server = servers[i];
+      if (server.proc != null) inst = false;
+    }
+    if (inst) return fullRestart();
+    triggerFullRestart = !triggerFullRestart;
+    if (triggerFullRestart) console.log("Full restart will be triggered when servers are inactive");
+    else console.log("Full restart cancelled");
+  } else if (command == "forceFullRestart" || command == "ffullr") {
+    console.log("Forcing full restart of program..");
+    fullRestart();
   } else {
     console.log("Unknown Command: " + chalk.green(command));
+  }
+}
+
+var fullRestartInProg = false;
+
+function fullRestart () {
+  if (fullRestartInProg) return;
+  console.log("Triggering full restart");
+  fullRestartInProg = true;
+  for (i in servers) {
+    var server = servers[i];
+    if (server.proc != null) server.restart(true);
+  }
+  checkServersForRestart();
+}
+
+function checkServersForRestart () {
+  var check = true;
+  for (i in servers) {
+    var server = servers[i];
+    if (server.proc != null) {
+      check = false;
+      break;
+    }
+  }
+  if (check) {
+    if (config.respawnOnFullRestart) {
+      if (process.pkg) {
+        var replacement = spawn(process.execPath, [process.argv[1]].concat(process.argv.slice(2)), {shell: process.stdin.isTTY, detached: true});
+        replacement.unref();
+      } else {
+        var replacement = spawn(process.execPath, [process.argv[1]].concat(process.argv.slice(2)), {detached: true});
+        replacement.unref();
+      }
+    }
+    setTimeout(quit, 1000);
   }
 }
 
@@ -1058,3 +1163,9 @@ for (i in config.servers) createServer(i);
 updateInt = setInterval(checkTime, 5000); //Time checked every 5 seconds
 if (config.memoryChecker) memoryInt = setInterval(checkMemory, 60000); //Memory is checked every minute
 if (configureRestarts(config.restartRate) == -1) logger.warn(chalk.red("Warning: ")+"restartRate value in config is invalid, check your config.");
+
+process.on('uncaughtException', function(err) {
+  fs.writeFileSync('crashLog.txt', err.stack + "\n" + err.message);
+  setTimeout(process.exit.bind(null, -1), 100);
+  logger.error("ERROR", err);
+});

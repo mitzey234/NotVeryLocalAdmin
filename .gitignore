@@ -8,3 +8,5 @@ config.json
 release/
 
 old/
+
+crashLog.txt

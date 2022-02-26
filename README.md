@@ -14,7 +14,7 @@ The best part, this program supports multiple servers instead of running multipl
 
 If you want to just directly launch the program, your going to have to have [Node.js](https://nodejs.org/en/) installed. I built this project in version 15, but if you use older versions try to stay above version 12. If your lazy use [nvm](https://github.com/nvm-sh/nvm) to switch node versions simply.
 
-Using the node version is simple, you just need to run `npm i` first to install dependencies, then `node index.js` in the project folder and it will search the current working directory for the config file.
+Using the node version is simple, you just need to run `npm i` first to install dependencies, then `node index.js` in the project folder and it will search the current working directory for the config file. Alternatively you can start the program with a config file argument to override this part of the program. Usage: `node index.js -config <config.json path here>`
 
 For gods sake, please make sure you've CD'ed to the correct folder, otherwise you'll have errors and log files showing up places you don't want them..
 
@@ -22,7 +22,7 @@ For gods sake, please make sure you've CD'ed to the correct folder, otherwise yo
 
 Current versions of the project are packed using [pkg](https://www.npmjs.com/package/pkg) and released on the github. There's a version for linux, windows, and macOS (if for some reason you manage to get a Dedi on a f***ing mac don't ask).
 
-Using all these is simple, you just need to run the executable and it will search the current working directory for the config file.
+Using all these is simple, you just need to run the executable and it will search the current working directory for the config file. Alternatively you can start the program with a config file argument to override this part of the program. Usage: `./NotVeryLocalAdmin -config <config.json path here>`
 
 For gods sake, once again, please make sure you've CD'ed to the correct folder, otherwise you'll have errors and log files showing up places you don't want them..
 
@@ -51,6 +51,8 @@ loggingMaxDays: Should be likely a string such as "30d", which will tell the log
 loggingMaxSize: Should be a string that tells the log rotation to rotate log files when they reach a certain size, example: "20m" is 20MB. Use 'k', 'm', or 'g' for this value.
 
 memoryChecker: Should be a Boolean value, which controls whether or not to preform memory usage checking
+
+respawnOnFullRestart: Should be a Boolean value, can be null, controls whether or not to respawn the NVLA process when fully restarting the program (this is used when you use the fullr or ffullr commands, before the program quits it will spawn a process of itself then exit). It is recommended to only use this if you don't have any kind of watchdog watching this process, note that you likely will lose control of the console entirely after a restart, so its best to not use this.
 
 restartRate: Should be a string with a number and time suffix of either m (minutes), h (hours), d (days), mon (mons), or for some reason y (years). Should look something like "5h" for 5 hours. It DOES NOT support combining stuff like "5h2m". This will restart your servers every x amount of time gracefully, it will override the daily scheduled restart. This timer is based on the moment NVLA started, NOT the moment individual servers started. This can be set to Boolean false to disable it.
 
@@ -116,6 +118,8 @@ In case you need it, here's an example config for 5 servers on different ports:
 }
 ```
 
+Note: You can also opt to specify your config file somewhere else instead if you wish. Use `-config <path>` for arguments when starting the program
+
 # Commands
 
 The console in this program also has some commands, note that the console can be a little janky in SSH sessions:
@@ -145,16 +149,25 @@ enableAll | ea - (Usage: ea) Enables all configured servers, saves to config
 
 disableAll | da - (Usage: da) Disables all configured servers, saves to config
 
+version | v - (Usage: v) prints the current NVLA version
+
+fullRestart | fullr - (Usage: fullr) Will close the program when all servers are considered "inactive" (all offline or all empty). Optional: you can make it respawn the process on exit with respawnOnFullRestart in your config file set to true.
+
+forceFullRestart | ffullr - (Usage: ffullr) Will close the program immediately but it will use silent restart, which means players will get a round restart event instead of server closed. This means you can fully close everything and then restart this program immediately while still catching all the players you disconnected. 'fullRestart' does the same but it will just wait until its safe to do so. Optional: you can make it respawn the process on exit with respawnOnFullRestart in your config file set to true.
+
 reload - (Usage: reload) Reloads the whole config file and reconfigures the program live. Servers will not be affected by this function and the function will update log folder paths and such. Servers that are added will be created, servers that are removed will not be deleted until the program is restarted as a safety measure.
 
 # Future stuffs
 
 In the future I might make the program a bit more optimized in terms of handling current working directory and the actual current directory the program is running in.
-I also might add execution arguments so you can just do -config <config folder path here> so it can work a little better.
 Some other config options may also need to be added to make things a little bit more configurable for hosts but I'll add what people request.
 
 # Issues
 If you have any issues feel free to post them. If you run into errors or crashes please provide me with screenshots or console output as well as what you did to reach that state. Please note this repo will only be maintained as often as I can be available. I have a life too, and I can't spend it babysitting servers, let alone repos, why do you think I made this? :kek:
+
+Its generally a really good idea to use a good watchdog process that can watch this program and restart it if anything happens to it, say a memory leak or a crash. They happen and sometimes you need to deal with it. I recommend using something like systemctl or making this program a service in your operating system so your OS can take care of it. You have a lot of options and personally if your on Linux I recommend using a combination of screen + systemctl, where you make systemctl launch a screen of the program. Theres a special unit file config you can use for launching the screen and capturing the forked process PID so systemctl knows which pid to watch.
+
+If at some point your program crashes, I setup the program to catch any major exceptions and dump them into a crashLog.txt file in the current working directory. If you pass this to me it would help a lot in catching some of the bugs that I may have missed in putting this together.
 
 If you want to help with this project you may contact me at alex1001(at)live(dot)ca
 Or via discord if you know where to find me. Preferably discord cause my email is a trash can.
