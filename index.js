@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-var version = "1.1.2";
+var version = "1.1.3";
 const fs = require("fs");
 const Net = require('net');
 const path = require("path");
@@ -245,8 +245,8 @@ function startServer () {
   child.stderr.on('data', onServerStderr.bind(this));
 
   child.on('error', function (err) {
-    logger.error("Error launching server, check your executable!\n", e);
-    this.logger.verbose("Server Executable Error\n", e);
+    logger.error("Error launching server, check your executable!\n", err);
+    this.logger.verbose("Server Executable Error\n", err);
   });
 
   child.on('exit', function (code, signal) {
@@ -438,10 +438,10 @@ function restartServer (override) {
       logger.verbose(this.name + " Silent Restarting");
       this.logger.info("Silent Restarting");
     }
-    this.restartInProg = setTimeout(this.restartTimeout, config.serverRestartReqTimeout * 1000);
+    this.restartInProg = setTimeout(this.restartTimeout.bind(this,override), config.serverRestartReqTimeout * 1000);
   } else if (this.proc != null) {
     this.command("sr");
-    this.restartInProg = setTimeout(this.restartTimeout, config.serverRestartReqTimeout * 1000);
+    this.restartInProg = setTimeout(this.restartTimeout.bind(this,override), config.serverRestartReqTimeout * 1000);
     logger.verbose(this.name + " Silent Restarting");
     this.logger.info("Silent Restarting");
   } else {
@@ -451,7 +451,7 @@ function restartServer (override) {
   }
 }
 
-function restartTimeout () {
+function restartTimeout (override) {
   if (this.objectType != "server") return console.trace();
   delete this.restartInProg;
   if (this.restartTimeouts == null) this.restartTimeouts = 0;
@@ -471,10 +471,10 @@ function restartTimeout () {
       logger.verbose(this.name + " Silent Restarting");
       this.logger.info("Silent Restarting");
     }
-    this.restartInProg = setTimeout(this.restartTimeout, config.serverRestartReqTimeout * 1000);
+    this.restartInProg = setTimeout(this.restartTimeout.bind(this,override), config.serverRestartReqTimeout * 1000);
   } else if (this.proc != null) {
     this.command("sr");
-    this.restartInProg = setTimeout(this.restartTimeout, config.serverRestartReqTimeout * 1000);
+    this.restartInProg = setTimeout(this.restartTimeout.bind(this,override), config.serverRestartReqTimeout * 1000);
     logger.verbose(this.name + " Silent Restarting");
     this.logger.info("Silent Restarting");
   }
