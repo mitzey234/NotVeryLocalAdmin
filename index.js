@@ -247,7 +247,7 @@ function startServer () {
   child.on('error', function (err) {
     logger.error("Error launching server, check your executable!\n", err);
     this.logger.verbose("Server Executable Error\n", err);
-  });
+  }.bind(this));
 
   child.on('exit', function (code, signal) {
     this.logger.info(chalk.red("Server Process Exited with code:"), code, "Signal:", signal);
