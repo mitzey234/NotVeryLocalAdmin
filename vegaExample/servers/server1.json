@@ -21,6 +21,10 @@
             "data": ""
         }
     ],
+    "dependancies": [
+        "SCPSLAudioApi",
+        "NVorbis"
+    ],
     "port": 7777,
     "verkey": null,
     "assignedMachine": "ouv0jl4j5aj"

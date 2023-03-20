@@ -11,6 +11,7 @@ const pluginsFolder = path.join(__dirname, "./plugins");
 const serversFolder = path.join(__dirname, "./servers");
 const customAssembliesFolder = path.join(__dirname, "./customAssemblies");
 const dedicatedFilesFolder = path.join(__dirname, "./globalConfig");
+const dependanciesFolder = path.join(__dirname, "./dependancies");
 
 const password = "12345";
 
@@ -23,6 +24,9 @@ let plugins = new Map();
 
 /** @type Map<string,Assembly> */
 let customAssemblies = new Map();
+
+/** @type Map<string,Assembly> */
+let dependancies = new Map();
 
 /** @type Map<string,DedicatedFile> */
 let dedicatedFiles = new Map();
@@ -150,6 +154,9 @@ class serverConfig {
 
   /** @type PluginFile[] */
   pluginFiles = [];
+
+  /** @type string[] */
+  dependancies = [];
 
   /** @type number */
   port = 0;
@@ -400,6 +407,35 @@ async function loadCustomAssemblies () {
   console.log("Loaded " + customAssemblies.size + " assemblies");
 }
 
+async function loadDependancies () {
+  dependancies.clear();
+  let filenames;
+  try {
+    filenames = fs.readdirSync(dependanciesFolder);
+  } catch (e) {
+    console.log(e);
+    return;
+  }
+  for (i in filenames) {
+    let filename = filenames[i];
+    if (filename.endsWith(".dll")) {
+      let filePath = path.join(dependanciesFolder, filename);
+      let resolve = path.parse(filePath);
+      let assembly = new Assembly();
+      assembly.name = resolve.name;
+      assembly.md5 = await getMD5(filePath);
+      let info = vi(filePath);
+      assembly.author = info.CompanyName || "Unknown Author";
+      assembly.label = info.ProductName || filename.replace(".dll", "");
+      assembly.version = info["Assembly Version"] || info.ProductVersion || info.FileVersion || "Unknown Version";
+      if (assembly.version == "0.0.0.0") "Unknown Version";
+      dependancies.set(assembly.name, assembly);
+      console.log("Loaded assembly '"+assembly.label+"'");
+    }
+  }
+  console.log("Loaded " + dependancies.size + " dependancies");
+}
+
 async function loadDedicatedFiles () {
   dedicatedFiles.clear();
   let files;
@@ -436,7 +472,7 @@ async function loadServers () {
         config = loadServerConfig(JSON.parse(fs.readFileSync(path.join(serversFolder, filename))));
         fs.writeFileSync(path.join(serversFolder, filename), JSON.stringify(config, null, 4));
         servers.set(config.id, config);
-        console.log("Loaded server config for "+config.label+" - " + config.plugins.length + " plugins - " + config.dedicatedFiles.length + " dedicated files - " + config.customAssemblies.length + " custom assemblies");
+        console.log("Loaded server config for "+config.label+" - " + config.plugins.length + " plugins - " + config.dedicatedFiles.length + " dedicated files - " + config.dependancies.length + " dependancies - " + config.customAssemblies.length + " custom assemblies");
       } catch (e) {
         console.log("Failed loading server config '"+filename+"':\n"+e);
         continue;
@@ -474,6 +510,10 @@ function loadServerConfig (obj) {
     let assembly = obj.customAssemblies[i];
     if (customAssemblies.has(assembly)) config.customAssemblies.push(assembly);
   }
+  for (i in obj.dependancies) {
+    let assembly = obj.dependancies[i];
+    if (dependancies.has(assembly)) config.dependancies.push(assembly);
+  }
   for (i in obj.pluginFiles) {
     let data = obj.pluginFiles[i];
     if (typeof(data.data) != "string") throw "Invalid dedicated file data";
@@ -491,6 +531,7 @@ async function start () {
   await loadPlugins();
   await loadCustomAssemblies();
   await loadDedicatedFiles();
+  await loadDependancies();
   await loadServers();
   server.listen(5555, '0.0.0.0');
 }
