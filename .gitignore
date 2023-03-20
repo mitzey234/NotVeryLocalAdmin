@@ -15,4 +15,13 @@ steam_old/
 
 steam/
 
-servers/
+vegaExample/globalConfig/*.dll
+vegaExample/globalConfig/**
+
+vegaExample/customAssemblies/*.dll
+vegaExample/customAssemblies/**
+
+vegaExample/plugins/*.dll
+vegaExample/plugins/**
+
+/servers

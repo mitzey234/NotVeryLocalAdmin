@@ -3,7 +3,9 @@ const path = require("path");
 const axios = require('axios');
 const { spawn } = require('child_process');
 const EventEmitter = require("events");
-var pty = require('node-pty');
+const pty = require('node-pty');
+const { Client } = require("./socket.js");
+const pack = require("./package.json");
 
 var defaultSteamPath = [__dirname, "steam"];
 var defaultServersPath = [__dirname, "servers"];
@@ -196,7 +198,10 @@ class steam extends EventEmitter{
 
         let code = await new Promise(function (resolve, reject) {this.on("exit", resolve)}.bind(process));
         this.main.log.bind(this)("Steam binary finished with code:", code);
-        if (code == 42) return this.run(params); //If exit code is 42, steamcmd updated and triggered magic restart
+        if (code == 42 || code == 7) {
+            this.main.log.bind(this)("Steam binary updated, restarting");
+            return this.run(params); //If exit code is 42, steamcmd updated and triggered magic restart
+        }
         else if (code == 0) return code;
         else {
             let error = "";
@@ -288,7 +293,6 @@ class steam extends EventEmitter{
             return -3;
         }
         this.main.log.bind(this)("Selecting decompression method");
-        let extractor;
         if (process.platform != 'win32') {
             try {
                 buffer = require("zlib").gunzipSync(buffer.data);
@@ -297,25 +301,32 @@ class steam extends EventEmitter{
                 return -1;
             }
             extractor = require('tar');
+            let writer = extractor.Extract({path: basePath});
+            try {
+                let obj = {resolve: function () {}, reject: function () {}};
+                setTimeout(function () {
+                    writer.write(buffer);
+                    writer.end();
+                }, 100);
+                await new Promise(function (resolve, reject) {this.on("close", resolve); this.on("error", reject);}.bind(writer));
+            } catch (e) {
+                this.main.error.bind(this)("Failed extraction:", e);
+                return -2;
+            }
+            this.main.log.bind(this)("Extraction complete");
         } else {
             buffer = buffer.data;
-            extractor = require('unzip');
+            const AdmZip = require('adm-zip');
+            try {
+                this.main.log.bind(this)("Decompressing file: " + basePath);
+                let zip = new AdmZip(buffer);
+                zip.extractAllTo(basePath, true, true);
+                console.log('Extraction complete');
+            } catch (err) {
+                this.main.error.bind(this)("Failed extraction:", e);
+                return -2;
+            }
         }
-        this.main.log.bind(this)("Decompressing file: " + basePath);
-        let writer = extractor.Extract({path: basePath});
-
-        try {
-            let obj = {resolve: function () {}, reject: function () {}};
-            setTimeout(function () {
-                writer.write(buffer);
-                writer.end();
-            }, 100);
-            await new Promise(function (resolve, reject) {this.on("close", resolve); this.on("error", reject);}.bind(writer));
-        } catch (e) {
-            this.main.error.bind(this)("Failed extraction:", e);
-            return -2;
-        }
-        this.main.log.bind(this)("Extraction complete");
         return 1;
     }
 }
@@ -328,6 +339,9 @@ class NVLA {
 
     /** @type { import('./config.json')} */
     config;
+
+    /** @type { import('./socket.js')["Client"]} */
+    client;
 
     async start () {
         this.config = require("./config.json");
@@ -342,6 +356,56 @@ class NVLA {
             process.exit();
         }
         this.log("Steam ready");
+        this.connect();
+    }
+
+    async connect () {
+        this.log.bind(this)("Connecting to Vega");
+        this.client = new Client();
+        this.client.connect({ port: this.config.vega.port, host: this.config.vega.host });
+        this.client.on('message', this.onMessage.bind(this));
+        this.client.on('connect', this.onConnect.bind(this));
+        this.client.on('close', this.onClose.bind(this));
+        this.client.on('error', this.onError.bind(this));
+    }
+
+    async onConnect () {
+        this.client.sendMessage({"type": "auth", "token": this.config.vega.password, "id": this.config.vega.id, "label": this.config.vega.label, "version": pack.version});
+    }
+
+    serverTimeout () {
+        this.log.bind(this)("Vega Connection timed out");
+        this.client.destroy();
+    }
+
+    async onMessage (m, s) {
+        //console.log("Message:", m);
+        if (m.type == "auth") {
+            if (m.data == true) {
+                s.pingSystem = new pingSystem(s.sendMessage, this.serverTimeout.bind(this));
+                this.log.bind(this)("Vega Connection completed");
+                if (this.config.vega.id == null && m.id != null) {
+                    this.config.vega.id = m.id;
+                    fs.writeFileSync("./config.json", JSON.stringify(this.config, null, 4));
+                }
+            }
+        } else if (m.type == "ping") {
+            s.sendMessage({type: "pong"});
+        } else if (m.type == "pong" && s.pingSystem != null && s.pingSystem.inProgress) {
+            s.pingSystem.resolve();
+        } else if (m.type == "servers") {
+            console.log(m);
+        }
+    }
+
+    async onClose () {
+        this.log.bind(this)("Vega Connection closed, reconnecting in 5 seconds");
+        setTimeout(this.connect.bind(this), 5000);
+        if (this.client.pingSystem != null) this.client.pingSystem.destroy();
+    }
+    
+    async onError (e) {
+        this.error.bind(this)("Vega Connection error:", e);
     }
 
     async getServers () {
@@ -354,6 +418,60 @@ class NVLA {
 
     error = function (...args) {
         console.error("[" + this.constructor.name + "]", ...args);
+    }
+}
+
+class pingSystem {
+    /** @type function */
+    sendMethod = null;
+
+    /** @type function */
+    pingHostDeathMethod = null;
+
+    /** @type number */
+    failures = 0;
+
+    /** @type boolean */
+    inProgress = false;
+
+    /** @type number */
+    timeout;
+
+    /** @type number */
+    interval;
+
+    constructor (send, death) {
+        this.sendMethod = send;
+        this.pingHostDeathMethod = death;
+        this.interval = setInterval(this.send.bind(this), 1000);
+        this.send.bind(this)();
+    }
+
+    send () {
+        if (this.inProgress) return;
+        this.inProgress = true;
+        this.sendMethod({type: "ping"});
+        this.timeout = setTimeout(this.timeoutMethod.bind(this), 5000);
+    }
+
+    timeoutMethod () {
+        this.failures++;
+        if (this.failures >= 3) {
+            this.pingHostDeathMethod();
+            clearInterval(this.interval);
+        }
+        this.inProgress = false;
+    }
+
+    resolve () {
+        clearTimeout(this.timeout);
+        this.inProgress = false;
+        this.failures = 0;
+    }
+
+    destroy () {
+        clearInterval(this.interval);
+        clearTimeout(this.timeout);
     }
 }
 

@@ -1,0 +1,27 @@
+{
+    "label": "Server-1",
+    "id": "h984g37u",
+    "dedicatedFiles": [
+        {
+            "path": "test.txt",
+            "merging": true,
+            "data": ""
+        }
+    ],
+    "plugins": [
+        "BrightPlugin"
+    ],
+    "customAssemblies": [
+        "Assembly-CSharp-Publicized"
+    ],
+    "pluginFiles": [
+        {
+            "path": "test.txt",
+            "merging": true,
+            "data": ""
+        }
+    ],
+    "port": 7777,
+    "verkey": null,
+    "assignedMachine": "ouv0jl4j5aj"
+}
