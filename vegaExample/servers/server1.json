@@ -21,7 +21,7 @@
             "data": ""
         }
     ],
-    "dependancies": [
+    "dependencies": [
         "SCPSLAudioApi",
         "NVorbis"
     ],

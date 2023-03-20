@@ -343,6 +343,9 @@ class NVLA {
     /** @type { import('./socket.js')["Client"]} */
     client;
 
+    /** @type Vega */
+    vega;
+
     async start () {
         this.config = require("./config.json");
         var serversPath = defaultServersPath;
@@ -356,7 +359,40 @@ class NVLA {
             process.exit();
         }
         this.log("Steam ready");
-        this.connect();
+        this.vega = new Vega(this);
+        this.vega.connect();
+    }
+
+    log = function (...args) {
+        console.log("[" + this.constructor.name + "]", ...args);
+    }
+
+    error = function (...args) {
+        console.error("[" + this.constructor.name + "]", ...args);
+    }
+}
+
+class Vega {
+    /** @type {NVLA} */
+    main;
+
+    /** @type { import('./config.json')} */
+    config;
+
+    /** @type { import('./socket.js')["Client"]} */
+    client;
+
+    /** @type {Map<string, {resolve: function, reject: function}>} */
+    fileRequests = new Map();
+
+    /**
+     * @param {NVLA} main
+     */
+    constructor(main) {
+        this.main = main;
+        this.log = main.log;
+        this.error = main.error;
+        this.config = main.config;
     }
 
     async connect () {
@@ -388,6 +424,7 @@ class NVLA {
                     this.config.vega.id = m.id;
                     fs.writeFileSync("./config.json", JSON.stringify(this.config, null, 4));
                 }
+                this.onAuthenticated();
             }
         } else if (m.type == "ping") {
             s.sendMessage({type: "pong"});
@@ -395,13 +432,49 @@ class NVLA {
             s.pingSystem.resolve();
         } else if (m.type == "servers") {
             console.log(m);
+        } else if (m.type == "fileRequest") {
+            if (this.fileRequests.has(m.id)) {
+                let request = this.fileRequests.get(m.id);
+                if (m.e) return request.reject(m.e);
+                if (!m.found) return request.reject("File load error");
+                request.resolve(Buffer.from(m.data, "base64"));
+                this.fileRequests.delete(m.id);
+            }
         }
+    }
+
+    randomFileRequestId () {
+        let id = Math.random().toString(36).slice(2);
+        if (this.fileRequests.has(id)) return randomId();
+        return id;
+    }
+
+    async onAuthenticated () {
+        try {
+            let data = await this.getFile("customAssembly", "Assembly-CSharp-Publicized");
+            console.log("Got file:", data);
+        } catch (e) {
+            console.log("Error getting file: " + e);
+        }
+    }
+
+    async getFile (type, file) {
+        this.log.bind(this)("Requesting dependency: SCPSLAudioApi");
+        return new Promise((resolve, reject) => {
+            let id = this.randomFileRequestId();
+            this.fileRequests.set(id, {resolve: resolve, reject: reject});
+            this.client.sendMessage({type: "fileRequest", id: id, fileType: type, file: file});
+        });
     }
 
     async onClose () {
         this.log.bind(this)("Vega Connection closed, reconnecting in 5 seconds");
         setTimeout(this.connect.bind(this), 5000);
         if (this.client.pingSystem != null) this.client.pingSystem.destroy();
+        this.fileRequests.forEach((v, k) => {
+            v.reject("Vega Connection closed");
+            this.fileRequests.delete(k);
+        });
     }
     
     async onError (e) {
@@ -410,14 +483,6 @@ class NVLA {
 
     async getServers () {
 
-    }
-
-    log = function (...args) {
-        console.log("[" + this.constructor.name + "]", ...args);
-    }
-
-    error = function (...args) {
-        console.error("[" + this.constructor.name + "]", ...args);
     }
 }
 

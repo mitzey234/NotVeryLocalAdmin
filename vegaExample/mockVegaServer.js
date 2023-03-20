@@ -11,7 +11,7 @@ const pluginsFolder = path.join(__dirname, "./plugins");
 const serversFolder = path.join(__dirname, "./servers");
 const customAssembliesFolder = path.join(__dirname, "./customAssemblies");
 const dedicatedFilesFolder = path.join(__dirname, "./globalConfig");
-const dependanciesFolder = path.join(__dirname, "./dependancies");
+const dependenciesFolder = path.join(__dirname, "./dependencies");
 
 const password = "12345";
 
@@ -26,7 +26,7 @@ let plugins = new Map();
 let customAssemblies = new Map();
 
 /** @type Map<string,Assembly> */
-let dependancies = new Map();
+let dependencies = new Map();
 
 /** @type Map<string,DedicatedFile> */
 let dedicatedFiles = new Map();
@@ -156,7 +156,7 @@ class serverConfig {
   pluginFiles = [];
 
   /** @type string[] */
-  dependancies = [];
+  dependencies = [];
 
   /** @type number */
   port = 0;
@@ -224,6 +224,31 @@ function onMessage (m, s) {
       s.sendMessage({type: "pong"});
     } else if (m.type == "pong" && s.pingSystem != null && s.pingSystem.inProgress) {
       s.pingSystem.resolve();
+    } else if (m.type == "fileRequest" && m.id != null) {
+      if (m.fileType == "dependency") {
+        let filePath = path.join(dependenciesFolder, m.file)+".dll";
+        if (!dependencies.has(m.file) || !fs.existsSync(filePath)) return s.sendMessage({type: "fileRequest", id: m.id, found: false});
+        let data;
+        try {
+          data = fs.readFileSync(filePath, {encoding: 'base64'});
+        } catch (e) {
+          return s.sendMessage({type: "fileRequest", id: m.id, found: false, e: e.code});
+        }
+        console.log("Machine " + s.authed + " requested dependency " + m.file);
+        s.sendMessage({type: "fileRequest", found: true, data: data, id: m.id});
+      }
+      if (m.fileType == "customAssembly") {
+        let filePath = path.join(customAssembliesFolder, m.file)+".dll";
+        if (!customAssemblies.has(m.file) || !fs.existsSync(filePath)) return s.sendMessage({type: "fileRequest", id: m.id, found: false});
+        let data;
+        try {
+          data = fs.readFileSync(filePath, {encoding: 'base64'});
+        } catch (e) {
+          return s.sendMessage({type: "fileRequest", id: m.id, found: false, e: e.code});
+        }
+        console.log("Machine " + s.authed + " requested custom assembly " + m.file);
+        s.sendMessage({type: "fileRequest", found: true, data: data, id: m.id});
+      }
     }
   }
 }
@@ -284,7 +309,7 @@ class pingSystem {
 
 function randomId () {
   let id = Math.random().toString(36).slice(2);
-  if (sockets[id]) return randomId();
+  if (machines.has(id)) return randomId();
   return id;
 }
 
@@ -407,11 +432,11 @@ async function loadCustomAssemblies () {
   console.log("Loaded " + customAssemblies.size + " assemblies");
 }
 
-async function loadDependancies () {
-  dependancies.clear();
+async function loaddependencies () {
+  dependencies.clear();
   let filenames;
   try {
-    filenames = fs.readdirSync(dependanciesFolder);
+    filenames = fs.readdirSync(dependenciesFolder);
   } catch (e) {
     console.log(e);
     return;
@@ -419,7 +444,7 @@ async function loadDependancies () {
   for (i in filenames) {
     let filename = filenames[i];
     if (filename.endsWith(".dll")) {
-      let filePath = path.join(dependanciesFolder, filename);
+      let filePath = path.join(dependenciesFolder, filename);
       let resolve = path.parse(filePath);
       let assembly = new Assembly();
       assembly.name = resolve.name;
@@ -429,11 +454,11 @@ async function loadDependancies () {
       assembly.label = info.ProductName || filename.replace(".dll", "");
       assembly.version = info["Assembly Version"] || info.ProductVersion || info.FileVersion || "Unknown Version";
       if (assembly.version == "0.0.0.0") "Unknown Version";
-      dependancies.set(assembly.name, assembly);
+      dependencies.set(assembly.name, assembly);
       console.log("Loaded assembly '"+assembly.label+"'");
     }
   }
-  console.log("Loaded " + dependancies.size + " dependancies");
+  console.log("Loaded " + dependencies.size + " dependencies");
 }
 
 async function loadDedicatedFiles () {
@@ -472,7 +497,7 @@ async function loadServers () {
         config = loadServerConfig(JSON.parse(fs.readFileSync(path.join(serversFolder, filename))));
         fs.writeFileSync(path.join(serversFolder, filename), JSON.stringify(config, null, 4));
         servers.set(config.id, config);
-        console.log("Loaded server config for "+config.label+" - " + config.plugins.length + " plugins - " + config.dedicatedFiles.length + " dedicated files - " + config.dependancies.length + " dependancies - " + config.customAssemblies.length + " custom assemblies");
+        console.log("Loaded server config for "+config.label+" - " + config.plugins.length + " plugins - " + config.dedicatedFiles.length + " dedicated files - " + config.dependencies.length + " dependencies - " + config.customAssemblies.length + " custom assemblies");
       } catch (e) {
         console.log("Failed loading server config '"+filename+"':\n"+e);
         continue;
@@ -510,9 +535,9 @@ function loadServerConfig (obj) {
     let assembly = obj.customAssemblies[i];
     if (customAssemblies.has(assembly)) config.customAssemblies.push(assembly);
   }
-  for (i in obj.dependancies) {
-    let assembly = obj.dependancies[i];
-    if (dependancies.has(assembly)) config.dependancies.push(assembly);
+  for (i in obj.dependencies) {
+    let assembly = obj.dependencies[i];
+    if (dependencies.has(assembly)) config.dependencies.push(assembly);
   }
   for (i in obj.pluginFiles) {
     let data = obj.pluginFiles[i];
@@ -531,7 +556,7 @@ async function start () {
   await loadPlugins();
   await loadCustomAssemblies();
   await loadDedicatedFiles();
-  await loadDependancies();
+  await loaddependencies();
   await loadServers();
   server.listen(5555, '0.0.0.0');
 }

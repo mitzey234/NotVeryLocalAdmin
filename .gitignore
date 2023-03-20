@@ -24,4 +24,7 @@ vegaExample/customAssemblies/**
 vegaExample/plugins/*.dll
 vegaExample/plugins/**
 
+vegaExample/dependencies/*.dll
+vegaExample/dependencies/**
+
 /servers
