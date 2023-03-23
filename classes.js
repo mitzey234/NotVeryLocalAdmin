@@ -283,9 +283,8 @@ class steam extends EventEmitter{
             env: process.env
         });
 
-        proc.write("ls\r");
         proc.write(this.binaryPath+" "+params.join(" ")+"\r");
-        proc.write("exit $LASTEXITCODE\r");
+        proc.write(process.platform === 'win32' ? "exit $LASTEXITCODE\r" : 'exit $?\r');
         
         proc.on('data', function(data) {
             let d = data.toString().split("\n");
