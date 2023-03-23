@@ -278,7 +278,7 @@ class steam extends EventEmitter{
     async run (params) {
         this.main.log.bind("Steam binary path: " + this.binaryPath);
 
-        let proc = pty.spawn(os.platform() === 'win32' ? 'powershell.exe' : 'bash', [], {
+        let proc = pty.spawn(process.platform === 'win32' ? 'powershell.exe' : 'bash', [], {
             cwd: path.parse(this.binaryPath).dir,
             env: process.env
         });
