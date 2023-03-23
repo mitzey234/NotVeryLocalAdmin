@@ -402,15 +402,15 @@ class steam extends EventEmitter{
                 this.main.log.bind(this)("Failed to decompress zip:", e);
                 return -1;
             }
-            let extractor = require('tar');
-            let writer = extractor.Extract({path: basePath});
+            let tar = require('tar-fs')
+            let writer = tar.extract(basePath);
             try {
                 let obj = {resolve: function () {}, reject: function () {}};
                 setTimeout(function () {
                     writer.write(buffer);
                     writer.end();
                 }, 100);
-                await new Promise(function (resolve, reject) {this.on("close", resolve); this.on("error", reject);}.bind(writer));
+                await new Promise(function (resolve, reject) {this.on("finish", resolve); this.on("error", reject);}.bind(writer));
             } catch (e) {
                 this.main.error.bind(this)("Failed extraction:", e);
                 return -2;
