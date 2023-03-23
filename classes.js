@@ -6,6 +6,8 @@ const EventEmitter = require("events");
 const pty = require('node-pty');
 const { Client } = require("./socket.js");
 const pack = require("./package.json");
+const crypto = require("crypto");
+const messageHandler = require("./messageSystem.js");
 
 var defaultSteamPath = [__dirname, "steam"];
 var defaultServersPath = [__dirname, "servers"];
@@ -18,29 +20,93 @@ function joinPathArray (array) {
     return base;
 }
 
+function md5 (string) {
+    let hash = crypto.createHash("md5");
+    hash.update(string);
+    return hash.digest("hex");
+}
 
-class ServerConfig {
+class settings {
     /** @type string */
-    name;
+    serversFolder = path.join(__dirname, "servers");
 
+    /** @type vegaSettings */
+    vega;
+
+    constructor () {
+        if (!fs.existsSync(path.join(__dirname, "config.json"))) fs.writeFileSync(path.join(__dirname, "config.json"), "{}");
+        let obj = JSON.parse(fs.readFileSync(path.join(__dirname, "config.json")));
+        this.vega = new vegaSettings(obj.vega);
+        for (var i in obj) {
+            if (i == "vega") continue;
+            this[i] = obj[i];
+        }
+        fs.writeFileSync(path.join(__dirname, "config.json"), JSON.stringify(this, null, 4));
+    }
+}
+
+class vegaSettings {
     /** @type string */
-    id;
-
-    /** @type {import('child_process').ChildProcess } */
-    process;
+    host = "127.0.0.1";
 
     /** @type number */
-    port;
-
-    /** @type Array<Plugin> */
-    plugins;
+    port = 5555;
 
     /** @type string */
-    gameplayConfig;
-    
-    constructor () {
+    password = null;
 
+    /** @type string */
+    label = "Default";
+
+    /** @type string */
+    id = null;
+
+    constructor (obj) {
+        for (var i in obj) {
+            this[i] = obj[i];
+        }
     }
+}
+
+class ServerConfig {
+  /** @type string */
+  label = null;
+
+  /** @type string */
+  id = null;
+
+  /** @type DedicatedFile[] */
+  dedicatedFiles = [];
+
+  /** @type string[] */
+  plugins = [];
+
+  /** @type string[] */
+  customAssemblies = [];
+
+  /** @type PluginFile[] */
+  pluginFiles = [];
+
+  /** @type string[] */
+  dependencies = [];
+
+  /** @type number */
+  port = 0;
+
+  /** @type string */
+  verkey = null;
+
+  /** @type string */
+  assignedMachine = null;
+
+  /** @type string */
+  beta = null;
+
+  /** @type string */
+  betaPassword = null;
+
+  /** @type Array<string> */
+  installArguments = null;
 
 }
 
@@ -48,18 +114,48 @@ class Server {
     /** @type {import('child_process').ChildProcess } */
     process;
 
+    /** @type NVLA */
+    main;
+
     /** @type ServerConfig */
     config;
 
-    constructor () {
-
-    }
-}
-
-class executable {
     /** @type string */
-    binaryPath;
+    pluginsFolderPath;
 
+    /** @type string */
+    serverConfigsFolder;
+
+    /** @type string */
+    serverCustomAssembliesFolder;
+
+    /** @type string */
+    serverInstallFolder;
+
+    /**
+     * @param {NVLA} main
+     * @param {ServerConfig} config
+     */
+    constructor (main, config) {
+        this.main = main;
+        this.config = config;
+        this.pluginsFolderPath = path.join(this.main.config.serversFolder, this.config.id, "SCP Secret Laboratory", "PluginAPI", "plugins", "global");
+        this.serverConfigsFolder = path.join(this.main.config.serversFolder, this.config.id, "SCP Secret Laboratory", "config", config.port.toString());
+        this.serverInstallFolder = path.join(this.main.config.serversFolder, this.config.id, "scpsl");
+        this.serverCustomAssembliesFolder = path.join(this.serverInstallFolder, "SCPSL_Data", "Managed");
+    }
+
+    async install() {
+        this.main.log.bind(this)("Configuring server " + this.config.label, this.config);
+        try {
+            let result = await this.main.steam.downloadApp("996560", this.serverInstallFolder, this.config.beta, this.config.betaPassword, this.config.installArguments);
+            if (result != 0) throw "Failed to install server";
+            this.main.log.bind(this)("Installed SCPSL");
+        } catch (e) {
+            this.main.error.bind(this)("Failed to install server: " + e);
+            return;
+        }
+    }
 }
 
 class steamLogEvent {
@@ -145,7 +241,7 @@ class steam extends EventEmitter{
     async onstdout (runId, str, isError) {
         this.emit("log", new steamLogEvent(runId, str, isError));
         try {
-            //this.main.log.bind(this)(`${str}`);
+            this.main.log.bind(this)(`${str}`);
             if (str[0] == '[' && str[5] == ']') {
                 var percent = str.substring(1,5).replace("%", "");
                 if (percent == "----") percent = null;
@@ -182,7 +278,20 @@ class steam extends EventEmitter{
     async run (params) {
         this.main.log.bind("Steam binary path: " + this.binaryPath);
 
-        var process = pty.spawn(this.binaryPath, params, {});
+        let process2 = pty.spawn("./steam/test.sh", params, {});
+
+        process2.on('data', function(data) {
+            let d = data.toString().split("\n");
+            for (i in d) {
+                try {
+                    this.main.log.bind(this)("Test: " + d[i]);
+                } catch (e) {
+                    this.main.error.bind(this)("Error in steam stdout", e);
+                }
+            }
+        }.bind(this));
+
+        let process = pty.spawn(this.binaryPath, params, {});
         
         process.on('data', function(data) {
             let d = data.toString().split("\n");
@@ -256,8 +365,8 @@ class steam extends EventEmitter{
         return result;
     }
 
-    async downloadApp (appId, path, beta) {
-        let result = await this.runWrapper(['+@sSteamCmdForcePlatformType linux', '+force_install_dir ' + ("\""+path+"\""), '+login anonymous', '+app_update ' + appId, (beta != null && beta.trim() != "" ? "-beta " + beta : ""), 'validate', '+quit'], Math.floor(Math.random()*10000000000));
+    async downloadApp (appId, path, beta, betaPassword, customArgs) {
+        let result = await this.runWrapper([(customArgs != null ? customArgs.join(" ") : ""), '+force_install_dir ' + ("\""+path+"\""), '+login anonymous', '+app_update ' + appId, (beta != null && beta.trim() != "" ? "-beta " + beta + (betaPassword != null && betaPassword.trim() != "" ? "-betapassword " + betaPassword : "") : ""), 'validate', '+quit'], Math.floor(Math.random()*10000000000));
         return result;
     }
 
@@ -333,11 +442,26 @@ class steam extends EventEmitter{
 
 setInterval(() => {}, 1000);
 
+class ServerManager extends EventEmitter {
+
+    /** @type Map<String,Server> */
+    servers = new Map();
+
+    constructor () {
+        super();
+    }
+
+    loadLocalConfiguration () {
+        
+    }
+
+}
+
 class NVLA { 
     /** @type steam */
     steam;
 
-    /** @type { import('./config.json')} */
+    /** @type settings */
     config;
 
     /** @type { import('./socket.js')["Client"]} */
@@ -346,21 +470,28 @@ class NVLA {
     /** @type Vega */
     vega;
 
+    /** @type ServerManager */
+    ServerManager;
+
     async start () {
-        this.config = require("./config.json");
+        this.config = new settings();
         var serversPath = defaultServersPath;
         if (this.config.overrideServersPath && this.config.overrideServersPath.trim() != "") basePath = overridePath;
         if (Array.isArray(serversPath)) serversPath = joinPathArray(serversPath);
         if (!fs.existsSync(serversPath)) fs.mkdirSync(serversPath, {recursive: true});
         this.steam = new steam(this);
+        /*
         let check = await this.steam.check();
         if ((this.steam.found != true) || (typeof(check) == "number" && check != 0) || !this.steam.ready) {
             this.log("Steam check failed:", check);
             process.exit();
-        }
+        }*/
         this.log("Steam ready");
+        this.ServerManager = new ServerManager();
+        this.ServerManager.loadLocalConfiguration();
         this.vega = new Vega(this);
         this.vega.connect();
+
     }
 
     log = function (...args) {
@@ -385,6 +516,9 @@ class Vega {
     /** @type {Map<string, {resolve: function, reject: function}>} */
     fileRequests = new Map();
 
+    /** @type {messageHandler} */
+    messageHandler;
+
     /**
      * @param {NVLA} main
      */
@@ -393,6 +527,7 @@ class Vega {
         this.log = main.log;
         this.error = main.error;
         this.config = main.config;
+        this.messageHandler = new messageHandler(this, module.exports);
     }
 
     async connect () {
@@ -415,31 +550,10 @@ class Vega {
     }
 
     async onMessage (m, s) {
-        //console.log("Message:", m);
-        if (m.type == "auth") {
-            if (m.data == true) {
-                s.pingSystem = new pingSystem(s.sendMessage, this.serverTimeout.bind(this));
-                this.log.bind(this)("Vega Connection completed");
-                if (this.config.vega.id == null && m.id != null) {
-                    this.config.vega.id = m.id;
-                    fs.writeFileSync("./config.json", JSON.stringify(this.config, null, 4));
-                }
-                this.onAuthenticated();
-            }
-        } else if (m.type == "ping") {
-            s.sendMessage({type: "pong"});
-        } else if (m.type == "pong" && s.pingSystem != null && s.pingSystem.inProgress) {
-            s.pingSystem.resolve();
-        } else if (m.type == "servers") {
-            console.log(m);
-        } else if (m.type == "fileRequest") {
-            if (this.fileRequests.has(m.id)) {
-                let request = this.fileRequests.get(m.id);
-                if (m.e) return request.reject(m.e);
-                if (!m.found) return request.reject("File load error");
-                request.resolve(Buffer.from(m.data, "base64"));
-                this.fileRequests.delete(m.id);
-            }
+        try {
+            this.messageHandler.handle(m, s);
+        } catch (e) {
+            this.error.bind(this)("Failed to handle message:", e + "\n" + m);
         }
     }
 
@@ -451,15 +565,15 @@ class Vega {
 
     async onAuthenticated () {
         try {
-            let data = await this.getFile("customAssembly", "Assembly-CSharp-Publicized");
-            console.log("Got file:", data);
+            //let data = await this.getFile("customAssembly", "Assembly-CSharp");
+            //console.log("Got file:", data);
         } catch (e) {
             console.log("Error getting file: " + e);
         }
     }
 
     async getFile (type, file) {
-        this.log.bind(this)("Requesting dependency: SCPSLAudioApi");
+        this.log.bind(this)("Requesting "+type+": "+file);
         return new Promise((resolve, reject) => {
             let id = this.randomFileRequestId();
             this.fileRequests.set(id, {resolve: resolve, reject: reject});
@@ -486,60 +600,9 @@ class Vega {
     }
 }
 
-class pingSystem {
-    /** @type function */
-    sendMethod = null;
-
-    /** @type function */
-    pingHostDeathMethod = null;
-
-    /** @type number */
-    failures = 0;
-
-    /** @type boolean */
-    inProgress = false;
-
-    /** @type number */
-    timeout;
-
-    /** @type number */
-    interval;
-
-    constructor (send, death) {
-        this.sendMethod = send;
-        this.pingHostDeathMethod = death;
-        this.interval = setInterval(this.send.bind(this), 1000);
-        this.send.bind(this)();
-    }
-
-    send () {
-        if (this.inProgress) return;
-        this.inProgress = true;
-        this.sendMethod({type: "ping"});
-        this.timeout = setTimeout(this.timeoutMethod.bind(this), 5000);
-    }
-
-    timeoutMethod () {
-        this.failures++;
-        if (this.failures >= 3) {
-            this.pingHostDeathMethod();
-            clearInterval(this.interval);
-        }
-        this.inProgress = false;
-    }
-
-    resolve () {
-        clearTimeout(this.timeout);
-        this.inProgress = false;
-        this.failures = 0;
-    }
-
-    destroy () {
-        clearInterval(this.interval);
-        clearTimeout(this.timeout);
-    }
-}
-
 module.exports = {
-    NVLA: NVLA
+    NVLA: NVLA,
+    Vega: Vega,
+    ServerConfig: ServerConfig,
+    Server: Server
 }

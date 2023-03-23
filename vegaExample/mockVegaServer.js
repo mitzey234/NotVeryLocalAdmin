@@ -13,6 +13,12 @@ const customAssembliesFolder = path.join(__dirname, "./customAssemblies");
 const dedicatedFilesFolder = path.join(__dirname, "./globalConfig");
 const dependenciesFolder = path.join(__dirname, "./dependencies");
 
+if (!fs.existsSync(pluginsFolder)) fs.mkdirSync(pluginsFolder);
+if (!fs.existsSync(serversFolder)) fs.mkdirSync(serversFolder);
+if (!fs.existsSync(customAssembliesFolder)) fs.mkdirSync(customAssembliesFolder);
+if (!fs.existsSync(dedicatedFilesFolder)) fs.mkdirSync(dedicatedFilesFolder);
+if (!fs.existsSync(dependenciesFolder)) fs.mkdirSync(dependenciesFolder);
+
 const password = "12345";
 
 //Files to watch
@@ -166,6 +172,15 @@ class serverConfig {
 
   /** @type string */
   assignedMachine = null;
+
+  /** @type string */
+  beta = null;
+
+  /** @type string */
+  betaPassword = null;
+
+  /** @type Array<string> */
+  installArguments = null;
 
 }
 
@@ -519,6 +534,9 @@ function loadServerConfig (obj) {
   config.verkey = obj.verkey;
   config.assignedMachine = obj.assignedMachine;
   config.dedicatedFiles = [];
+  config.beta = obj.beta;
+  config.betaPassword = obj.betaPassword;
+  config.installArguments = obj.installArguments;
   for (i in obj.dedicatedFiles) {
     let data = obj.dedicatedFiles[i];
     if (typeof(data.data) != "string") throw "Invalid dedicated file data";
