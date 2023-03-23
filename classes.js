@@ -402,7 +402,7 @@ class steam extends EventEmitter{
                 this.main.log.bind(this)("Failed to decompress zip:", e);
                 return -1;
             }
-            extractor = require('tar');
+            let extractor = require('tar');
             let writer = extractor.Extract({path: basePath});
             try {
                 let obj = {resolve: function () {}, reject: function () {}};
