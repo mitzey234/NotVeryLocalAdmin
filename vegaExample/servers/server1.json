@@ -11,9 +11,7 @@
     "plugins": [
         "BrightPlugin"
     ],
-    "customAssemblies": [
-        "Assembly-CSharp"
-    ],
+    "customAssemblies": [],
     "pluginFiles": [
         {
             "path": "test.txt",
@@ -23,12 +21,11 @@
     ],
     "dependencies": [
         "NVorbis",
-        "SCPSLAudioApi",
-        "0Harmony"
+        "SCPSLAudioApi"
     ],
     "port": 7777,
     "verkey": null,
-    "assignedMachine": "w6xwhlg18s7",
+    "assignedMachine": "ouv0jl4j5aj",
     "installArguments": [
         "+@sSteamCmdForcePlatformType linux"
     ]

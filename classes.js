@@ -241,7 +241,7 @@ class steam extends EventEmitter{
     async onstdout (runId, str, isError) {
         this.emit("log", new steamLogEvent(runId, str, isError));
         try {
-            this.main.log.bind(this)(`${str}`);
+            //this.main.log.bind(this)(`${str}`);
             if (str[0] == '[' && str[5] == ']') {
                 var percent = str.substring(1,5).replace("%", "");
                 if (percent == "----") percent = null;
@@ -278,22 +278,16 @@ class steam extends EventEmitter{
     async run (params) {
         this.main.log.bind("Steam binary path: " + this.binaryPath);
 
-        let process2 = pty.spawn("./steam/test.sh", params, {});
+        let proc = pty.spawn(os.platform() === 'win32' ? 'powershell.exe' : 'bash', [], {
+            cwd: path.parse(this.binaryPath).dir,
+            env: process.env
+        });
 
-        process2.on('data', function(data) {
-            let d = data.toString().split("\n");
-            for (i in d) {
-                try {
-                    this.main.log.bind(this)("Test: " + d[i]);
-                } catch (e) {
-                    this.main.error.bind(this)("Error in steam stdout", e);
-                }
-            }
-        }.bind(this));
-
-        let process = pty.spawn(this.binaryPath, params, {});
+        proc.write("ls\r");
+        proc.write(this.binaryPath+" "+params.join(" ")+"\r");
+        proc.write("exit $LASTEXITCODE\r");
         
-        process.on('data', function(data) {
+        proc.on('data', function(data) {
             let d = data.toString().split("\n");
             for (i in d) {
                 try {
@@ -305,7 +299,7 @@ class steam extends EventEmitter{
         }.bind(this));
 
 
-        let code = await new Promise(function (resolve, reject) {this.on("exit", resolve)}.bind(process));
+        let code = await new Promise(function (resolve, reject) {this.on("exit", resolve)}.bind(proc));
         this.main.log.bind(this)("Steam binary finished with code:", code);
         if (code == 42 || code == 7) {
             this.main.log.bind(this)("Steam binary updated, restarting");
@@ -480,12 +474,12 @@ class NVLA {
         if (Array.isArray(serversPath)) serversPath = joinPathArray(serversPath);
         if (!fs.existsSync(serversPath)) fs.mkdirSync(serversPath, {recursive: true});
         this.steam = new steam(this);
-        /*
+        
         let check = await this.steam.check();
         if ((this.steam.found != true) || (typeof(check) == "number" && check != 0) || !this.steam.ready) {
             this.log("Steam check failed:", check);
             process.exit();
-        }*/
+        }
         this.log("Steam ready");
         this.ServerManager = new ServerManager();
         this.ServerManager.loadLocalConfiguration();
