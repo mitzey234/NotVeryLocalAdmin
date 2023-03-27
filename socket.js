@@ -2,6 +2,19 @@ const Net = require('net');
 const EventEmitter = require('events');
 
 exports.Client = class Client extends Net.Socket {
+
+  /** @type function */
+  sendMessage;
+
+  /** @type Buffer[] */
+  buffer;
+
+  /** @type number */
+  buffered;
+
+  /** @type number */
+  messageLength;
+
   constructor() {
     super();
     this.buffer = [];

@@ -27,4 +27,8 @@ vegaExample/plugins/**
 vegaExample/dependencies/*.dll
 vegaExample/dependencies/**
 
+
+vegaExample/pluginConfig/*
+vegaExample/pluginConfig/**
+
 /servers

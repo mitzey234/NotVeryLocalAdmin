@@ -3,11 +3,14 @@ const fs = require("fs");
 const path = require("path");
 const crypto = require('crypto');
 const vi = require('win-version-info')
+const yaml = require('js-yaml');
+const chokidar = require('chokidar');
 
 var sockets = {};
 var count = 0;
 
 const pluginsFolder = path.join(__dirname, "./plugins");
+const pluginConfigsFolder = path.join(__dirname, "./pluginConfig");
 const serversFolder = path.join(__dirname, "./servers");
 const customAssembliesFolder = path.join(__dirname, "./customAssemblies");
 const dedicatedFilesFolder = path.join(__dirname, "./globalConfig");
@@ -37,14 +40,53 @@ let dependencies = new Map();
 /** @type Map<string,DedicatedFile> */
 let dedicatedFiles = new Map();
 
+/** @type Array<PluginFile> */
+let pluginFiles = new Map();
+
 /** @type Map<string,Machine> */
 let machines = new Map();
 
 /** @type Map<string,serverConfig> */
 let servers = new Map();
 
+var configFolderWatch = chokidar.watch(dedicatedFilesFolder, {ignoreInitial: true, persistent: true});
+configFolderWatch.on('all', onConfigFileEvent);
+configFolderWatch.on('error', error => console.log(`Watcher error: ${error}`));
+
+async function onConfigFileEvent (event, filePath) {
+  filePath = path.relative(dedicatedFilesFolder, filePath);
+  if (event == "add" || event == "unlink") {
+    await loadDedicatedFiles();
+    sendAllMachines({type: "updateConfig", id: null});
+  } else if (event == "change") {
+    sendAllMachines({type: "updateConfig", id: null});
+  }
+  console.log("Config file event: " + event + " " + filePath);
+}
+
+var pluginConfigFolderWatch = chokidar.watch(pluginConfigsFolder, {ignoreInitial: true, persistent: true});
+pluginConfigFolderWatch.on('all', onPluginConfigFileEvent);
+pluginConfigFolderWatch.on('error', error => console.log(`Watcher error: ${error}`));
+
+async function onPluginConfigFileEvent (event, filePath) {
+  filePath = path.relative(pluginConfigsFolder, filePath);
+  if (event == "add" || event == "unlink") {
+    await readGlobalPluginConfigs();
+    sendAllMachines({type: "updatePluginsConfig", id: null});
+  } else if (event == "change") {
+    sendAllMachines({type: "updatePluginsConfig", id: null});
+  }
+  console.log("Config file event: " + event + " " + filePath);
+}
+
+function sendAllMachines (obj) {
+  machines.forEach(function (machine) {
+    machine.socket.sendMessage(this);
+  }.bind(obj));
+}
+
 class Machine  {
-  /** @type {import("./socket.js")["Client"]} */
+  /** @type {import("../socket")["Client"]["prototype"]} */
   socket = null;
 
   /** @type {string} */
@@ -62,10 +104,6 @@ class Machine  {
   }
 }
 
-class Filewatch {
-
-}
-
 class Plugin {
   /** @type string */
   version = "";
@@ -81,9 +119,6 @@ class Plugin {
 
   /** @type string */
   label = "";
-
-  /** @type Array<PluginFile> */
-  files = [];
 }
 
 class Assembly {
@@ -111,7 +146,7 @@ class DedicatedFile {
   merging = false;
 
   /** @type string */
-  data = "";
+  data = null;
 
   /**
    * @param {string} path
@@ -132,17 +167,22 @@ class PluginFile {
     /** @type boolean */
     merging = false;
   
-    /** @type Array<number> */
-    data = "";
+    /** data in base64 string 
+     * @type string */
+    data = null;
   
-    constructor (path, merging) {
+    constructor (path, merging, data) {
       this.path = path;
       this.merging = merging;
+      this.data = data;
     }
   
 }
 
 class serverConfig {
+  /** @type string */
+  filename = null;
+
   /** @type string */
   label = null;
 
@@ -158,11 +198,11 @@ class serverConfig {
   /** @type string[] */
   customAssemblies = [];
 
-  /** @type PluginFile[] */
-  pluginFiles = [];
-
   /** @type string[] */
   dependencies = [];
+
+  /** @type PluginFile[] */
+  pluginFiles = [];
 
   /** @type number */
   port = 0;
@@ -182,12 +222,31 @@ class serverConfig {
   /** @type Array<string> */
   installArguments = null;
 
+  /** @type boolean */
+  autoStart = false;
+
+  simplified () {
+    let obj = {};
+    obj.label = this.label;
+    obj.id = this.id;
+    obj.port = this.port;
+    obj.verkey = this.verkey;
+    obj.assignedMachine = this.assignedMachine;
+    obj.beta = this.beta;
+    obj.betaPassword = this.betaPassword;
+    obj.installArguments = this.installArguments;
+    obj.dependencies = this.dependencies;
+    obj.customAssemblies = this.customAssemblies;
+    obj.plugins = this.plugins;
+    obj.autoStart = this.autoStart;
+    return obj;
+  }
 }
 
 function getAssignedServers (machine) {
   let arr = [];
   servers.forEach(server => {
-    if (server.assignedMachine == machine.id) arr.push(server);
+    if (server.assignedMachine == machine.id) arr.push(server.simplified());
   });
   return arr;
 }
@@ -230,7 +289,7 @@ function onMessage (m, s) {
         console.log("Machine Authenticated: " + m.id + " (" + machine.label + ") - " + machine.version + " - Assigned Servers: " + servers.length);
       } else {
         s.authed = false;
-        s.sendMessage({type: "auth", data: false});
+        s.sendMessage({type: "auth", data: false, e: (m.token != password ? "Invalid Password" : "Machine ID already in use")});
         if (!s.destroyed) s.destroy();
       }
     }
@@ -264,8 +323,285 @@ function onMessage (m, s) {
         console.log("Machine " + s.authed + " requested custom assembly " + m.file);
         s.sendMessage({type: "fileRequest", found: true, data: data, id: m.id});
       }
+    } else if (m.type == "pluginConfigurationRequest" && m.id != null) {
+      if (!servers.has(m.serverId)) return s.sendMessage({type: "pluginConfigurationRequest", id: m.id, e: "Server not found"});
+      let server = servers.get(m.serverId);
+      /** @type Map<string, PluginFile> */
+      let files = new Map();
+      for (i in pluginFiles) {
+        let pluginFile = pluginFiles[i];
+        let pf = new PluginFile();
+        try {
+          pf.data = fs.readFileSync(path.join(pluginConfigsFolder, pluginFile.path), {encoding: 'base64'});
+        } catch (e) {
+          console.log("Failed to load plugin file " + pluginFile.path);
+          continue;
+        }
+        pf.path = pluginFile.path;
+        pf.merging = pluginFile.merging;
+        files.set(pluginFile.path, pf);
+      }
+      for (x in server.pluginFiles) {
+        let pluginFile = server.pluginFiles[x];
+        if (files.has(pluginFile.path)) {
+          let global = files.get(pluginFile.path);
+          let data;
+          if (global.merging && pluginFile.merging) {
+            data = mergePluginFiles(global, pluginFile);
+          } else {
+            data = pluginFile.data;
+          }
+          let pf = new PluginFile();
+          pf.path = pluginFile.path;
+          pf.data = data;
+          pf.merging = pluginFile.merging;
+        }
+        files.set(pluginFile.path, pluginFile);
+      }
+      let filesArray = Array.from(files, ([name, value]) => (value));
+      s.sendMessage({type: "pluginConfigurationRequest", id: m.id, found: true, files: filesArray});
+    } else if (m.type == "pluginRequest" && m.id != null) {
+      if (!plugins.has(m.plugin)) return s.sendMessage({type: "pluginRequest", id: m.id, e: "Plugin not found"});
+      let plugin = plugins.get(m.plugin);
+      let filePath = path.join(pluginsFolder, plugin.name)+".dll";
+      if (!fs.existsSync(filePath)) return s.sendMessage({type: "pluginRequest", id: m.id, e: "Plugin file not found"});
+      try {
+        s.sendMessage({type: "pluginRequest", file: {data: fs.readFileSync(filePath, {encoding: 'base64'})}, id: m.id});
+      } catch (e) {
+        s.sendMessage({type: "pluginRequest", id: m.id, e: e.code});
+      }
+    } else if (m.type == "customAssemblyRequest" && m.id != null) {
+      if (!customAssemblies.has(m.assembly)) return s.sendMessage({type: "customAssemblyRequest", id: m.id, e: "Assembly not found"});
+      let assembly = customAssemblies.get(m.assembly);
+      let filePath = path.join(customAssembliesFolder, assembly.name)+".dll";
+      if (!fs.existsSync(filePath)) return s.sendMessage({type: "customAssemblyRequest", id: m.id, e: "Assembly file not found"});
+      try {
+        s.sendMessage({type: "customAssemblyRequest", file: {data: fs.readFileSync(filePath, {encoding: 'base64'})}, id: m.id});
+      } catch (e) {
+        s.sendMessage({type: "customAssemblyRequest", id: m.id, e: e.code});
+      }
+    } else if (m.type == "dependencyRequest" && m.id != null) {
+      if (!dependencies.has(m.dependency)) return s.sendMessage({type: "dependencyRequest", id: m.id, e: "Dependency not found"});
+      let dependency = dependencies.get(m.dependency);
+      let filePath = path.join(dependenciesFolder, dependency.name)+".dll";
+      if (!fs.existsSync(filePath)) return s.sendMessage({type: "dependencyRequest", id: m.id, e: "Dependency file not found"});
+      try {
+        s.sendMessage({type: "dependencyRequest", file: {data: fs.readFileSync(filePath, {encoding: 'base64'})}, id: m.id});
+      } catch (e) {
+        s.sendMessage({type: "dependencyRequest", id: m.id, e: e.code});
+      }
+    } else if (m.type == "dedicatedServerConfigurationRequest" && m.id != null) {
+      if (!servers.has(m.serverId)) return s.sendMessage({type: "dedicatedServerConfigurationRequest", id: m.id, e: "Server not found"});
+      let server = servers.get(m.serverId);
+      /** @type Map<string, PluginFile> */
+      let files = new Map();
+      dedicatedFiles.forEach(dedicatedFile => {
+        let df = new DedicatedFile();
+        try {
+          df.data = fs.readFileSync(path.join(dedicatedFilesFolder, dedicatedFile.path), {encoding: 'base64'});
+        } catch (e) {
+          console.log("Failed to load dedicated file " + dedicatedFile.path);
+          return;
+        }
+        df.path = dedicatedFile.path;
+        df.merging = dedicatedFile.merging;
+        files.set(dedicatedFile.path, df);
+      });
+      for (x in server.dedicatedFiles) {
+        let dedicatedFile = server.dedicatedFiles[x];
+        if (files.has(dedicatedFile.path)) {
+          let global = files.get(dedicatedFile.path);
+          let data;
+          if (global.merging && dedicatedFile.merging) {
+            data = mergeConfigFiles(global, dedicatedFile);
+          } else {
+            data = dedicatedFile.data;
+          }
+          let df = new DedicatedFile();
+          df.path = dedicatedFile.path;
+          df.data = data;
+          df.merging = dedicatedFile.merging;
+        }
+        files.set(dedicatedFile.path, dedicatedFile);
+      }
+      let filesArray = Array.from(files, ([name, value]) => (value));
+      s.sendMessage({type: "dedicatedServerConfigurationRequest", id: m.id, found: true, files: filesArray});
+    } else if (m.type == "removeConfigFile") {
+      if (!servers.has(m.serverId)) return;
+      let server = servers.get(m.serverId);
+      server.dedicatedFiles = server.dedicatedFiles.filter(dedicatedFile => dedicatedFile.path != m.path);
+      fs.writeFileSync(path.join(serversFolder, server.filename), JSON.stringify(server, null, 4));
+      s.sendMessage({type: "updateConfig", id: server.id});
+    } else if (m.type == "updateConfigFile") {
+      if (!servers.has(m.serverId)) return;
+      let server = servers.get(m.serverId);
+      let index = server.dedicatedFiles.findIndex(dedicatedFile => dedicatedFile.path == m.path)
+      let dedicatedFile;
+      let global;
+      if (dedicatedFiles.has(m.path)) global = dedicatedFiles.get(m.path);
+      if (index == -1) {
+        dedicatedFile = new DedicatedFile();
+        dedicatedFile.path = m.path;
+        dedicatedFile.merging = false;
+        dedicatedFile.data = m.data;
+        server.dedicatedFiles.push(dedicatedFile);
+      } else {
+        dedicatedFile = server.dedicatedFiles[index];
+        dedicatedFile.data = global != null && global.merging && dedicatedFile.merging ? mergeConfigFiles(global, {path: dedicatedFile.path, merging: dedicatedFile.merging, data: m.data}) : m.data;
+      }
+      // Check if the file is the same as the global file
+      if (global != null && global.data == pluginFile.data) {
+        server.dedicatedFiles = server.dedicatedFiles.filter(dedicatedFile => dedicatedFile.path != m.path);
+        fs.writeFileSync(path.join(serversFolder, server.filename), JSON.stringify(server, null, 4));
+        s.sendMessage({type: "updateConfig", id: server.id});
+        return;
+      }
+      fs.writeFileSync(path.join(serversFolder, server.filename), JSON.stringify(server, null, 4));
+      s.sendMessage({type: "updateConfig", id: server.id});
+    } else if (m.type == "removePluginConfigFile") {
+      if (!servers.has(m.serverId)) return;
+      let server = servers.get(m.serverId);
+      server.pluginFiles = server.pluginFiles.filter(pluginFile => pluginFile.path != m.path);
+      fs.writeFileSync(path.join(serversFolder, server.filename), JSON.stringify(server, null, 4));
+      s.sendMessage({type: "updatePluginsConfig", id: server.id});
+    } else if (m.type == "updatePluginConfigFile") {
+      if (!servers.has(m.serverId)) return;
+      let server = servers.get(m.serverId);
+      let index = server.pluginFiles.findIndex(pluginFile => pluginFile.path == m.path)
+      let pluginFile;
+      let global;
+      if (pluginFiles.findIndex(file => file.path == m.path) != -1) global = pluginFiles[pluginFiles.findIndex(file => file.path == m.path)];
+      if (index == -1) {
+        pluginFile = new PluginFile();
+        pluginFile.path = m.path;
+        pluginFile.merging = false;
+        pluginFile.data = m.data;
+        server.pluginFiles.push(pluginFile);
+      } else {
+        pluginFile = server.pluginFiles[index];
+        pluginFile.data = global != null && global.merging && pluginFile.merging ? mergePluginFiles(global, {path: pluginFile.path, merging: pluginFile.merging, data: m.data}) : m.data;
+      }
+      // Check if the file is the same as the global file
+      if (global != null && global.data == pluginFile.data) {
+        server.pluginFiles = server.pluginFiles.filter(pluginFile => pluginFile.path != m.path);
+        fs.writeFileSync(path.join(serversFolder, server.filename), JSON.stringify(server, null, 4));
+        s.sendMessage({type: "updatePluginsConfig", id: server.id});
+        return;
+      }
+      fs.writeFileSync(path.join(serversFolder, server.filename), JSON.stringify(server, null, 4));
+      s.sendMessage({type: "updatePluginsConfig", id: server.id});
     }
   }
+}
+
+/**
+ * 
+ * @param {PluginFile} global 
+ * @param {PluginFile} overwrite 
+ * @returns {string} Base64 encoded data
+ */
+function mergePluginFiles (global, overwrite) {
+  if (!mergingSupported.includes(path.parse(global.path).ext)) throw "Attempted to merge unsupported file type: " + path.parse(global.path).ext;
+  if (global.data == null) global.data = fs.readFileSync(path.join(pluginConfigsFolder, global.path)).toString("base64");
+  if (path.parse(global.path).ext == ".json") {
+    try {
+      return Buffer.from(JSON.stringify(mergeJSON(JSON.parse(Buffer.from(global.data, "base64").toString()), JSON.parse(Buffer.from(overwrite.data, "base64").toString())))).toString("base64");
+    } catch (e) {
+      console.log("Error merging JSON files: " + e);
+    }
+  } else if (path.parse(global.path).ext == ".yml" || path.parse(global.path).ext == ".yaml") {
+    try {
+      let globalYAML = yaml.load(Buffer.from(global.data, "base64").toString(), {schema: yaml.JSON_SCHEMA, json: true});
+      let overwriteYAML = yaml.load(Buffer.from(overwrite.data, "base64").toString(), {schema: yaml.JSON_SCHEMA, json: true});
+      let newData = mergeJSON(globalYAML, overwriteYAML);
+      return Buffer.from(yaml.dump(newData)).toString("base64");
+    } catch (e) {
+      console.log("Error merging YAML files: " + e);
+    }
+  } else if (path.parse(global.path).ext == ".txt") {
+    try {
+      let globalTXT = parseTxtToObject(Buffer.from(global.data, "base64").toString());
+      let overwriteTXT = parseTxtToObject(Buffer.from(overwrite.data, "base64").toString());
+      let newData = new Buffer.from(objectToText(mergeJSON(globalTXT, overwriteTXT))).toString("base64");
+      return newData;
+    } catch (e) {
+      console.log("Error merging TXT files: " + e);
+    }
+  }
+}
+
+/**
+ * 
+ * @param {DedicatedFile} global 
+ * @param {DedicatedFile} overwrite 
+ * @returns {string} Base64 encoded data
+ */
+function mergeConfigFiles (global, overwrite) {
+  if (!mergingSupported.includes(path.parse(global.path).ext)) throw "Attempted to merge unsupported file type: " + path.parse(global.path).ext;
+  if (global.data == null) global.data = fs.readFileSync(path.join(dedicatedFilesFolder, global.path)).toString("base64");
+  if (path.parse(global.path).ext == ".json") {
+    try {
+      return Buffer.from(JSON.stringify(mergeJSON(JSON.parse(Buffer.from(global.data, "base64").toString()), JSON.parse(Buffer.from(overwrite.data, "base64").toString())))).toString("base64");
+    } catch (e) {
+      console.log("Error merging JSON files: " + e);
+    }
+  } else if (path.parse(global.path).ext == ".yml" || path.parse(global.path).ext == ".yaml") {
+    try {
+      let globalYAML = yaml.load(Buffer.from(global.data, "base64").toString(), {schema: yaml.JSON_SCHEMA, json: true});
+      let overwriteYAML = yaml.load(Buffer.from(overwrite.data, "base64").toString(), {schema: yaml.JSON_SCHEMA, json: true});
+      let newData = mergeJSON(globalYAML, overwriteYAML);
+      return Buffer.from(yaml.dump(newData)).toString("base64");
+    } catch (e) {
+      console.log("Error merging YAML files: " + e);
+    }
+  } else if (path.parse(global.path).ext == ".txt") {
+    try {
+      let globalTXT = parseTxtToObject(Buffer.from(global.data, "base64").toString());
+      let overwriteTXT = parseTxtToObject(Buffer.from(overwrite.data, "base64").toString());
+      let newData = new Buffer.from(objectToText(mergeJSON(globalTXT, overwriteTXT))).toString("base64");
+      return newData;
+    } catch (e) {
+      console.log("Error merging txt files: " + e);
+    }
+  }
+}
+
+function parseTxtToObject (data) {
+  let o = {};
+  let lines = data.replaceAll("\r", "").split("\n");
+  for (i in lines) {
+    /** @type string */
+    let line = lines[i];
+    if (line.indexOf(":") == -1 || line.startsWith("#")) continue;
+    let split = line.split(":");
+    if (split.length == 2) {
+      o[split[0]] = split[1];
+    }
+  }
+  return o;
+}
+
+function objectToText (obj) {
+  let text = "";
+  for (i in obj) {
+    text += i + ": " + obj[i] + "\n";
+  }
+  return text;
+}
+
+function mergeJSON (global, overwrite) {
+  let obj = {};
+  for (i in global) {
+    obj[i] = global[i];
+  }
+  for (i in overwrite) {
+    if (typeof overwrite[i] == "object" && !Array.isArray(overwrite[i])) {
+      obj[i] = mergeJSON(global[i], overwrite[i]);
+    } else {
+      obj[i] = overwrite[i];
+    }
+  }
+  return obj;
 }
 
 class pingSystem {
@@ -396,26 +732,24 @@ async function loadPlugins () {
       plugin.label = info.ProductName || filename.replace(".dll", "");
       plugin.version = info["Assembly Version"] || info.ProductVersion || info.FileVersion || "Unknown Version";
       if (plugin.version == "0.0.0.0") "Unknown Version";
-
-      let configFolder = path.join(pluginsFolder, plugin.name);
-      try {
-        if (!fs.existsSync(configFolder)) fs.mkdirSync(configFolder);
-      } catch (e) {
-        console.log("Failed making config folder for plugin '"+plugin.label+"':\n"+ e);
-        continue;
-      }
-      let files = readFolder(configFolder);
-      for (i in files) {
-        let file = files[i];
-        let filePath = path.join(joinPaths(file.p), file.filename);
-        let pfile = new PluginFile(filePath, mergingSupported.includes(path.parse(file.filename).ext));
-        plugin.files.push(pfile);
-      }
       plugins.set(plugin.name, plugin);
-      console.log("Loaded plugin '"+plugin.label+"' - " + plugin.files.length + " files");
+      console.log("Loaded plugin '"+plugin.label+"'");
     }
   }
   console.log("Loaded " + plugins.size + " plugins");
+}
+
+async function readGlobalPluginConfigs () {
+  pluginFiles = [];
+  let configFolder = path.join(pluginConfigsFolder);
+  let files = readFolder(configFolder);
+  for (i in files) {
+    let file = files[i];
+    let filePath = path.join(joinPaths(file.p), file.filename);
+    let pfile = new PluginFile(filePath, mergingSupported.includes(path.parse(file.filename).ext));
+    pluginFiles.push(pfile);
+  }
+  console.log("Loaded " + pluginFiles.length + " plugin files");
 }
 
 async function loadCustomAssemblies () {
@@ -510,6 +844,7 @@ async function loadServers () {
       let config;
       try {
         config = loadServerConfig(JSON.parse(fs.readFileSync(path.join(serversFolder, filename))));
+        config.filename = filename;
         fs.writeFileSync(path.join(serversFolder, filename), JSON.stringify(config, null, 4));
         servers.set(config.id, config);
         console.log("Loaded server config for "+config.label+" - " + config.plugins.length + " plugins - " + config.dedicatedFiles.length + " dedicated files - " + config.dependencies.length + " dependencies - " + config.customAssemblies.length + " custom assemblies");
@@ -522,7 +857,6 @@ async function loadServers () {
 }
 
 /**
- * 
  * @param {serverConfig} obj 
  * @returns serverConfig
  */
@@ -574,6 +908,7 @@ async function start () {
   await loadPlugins();
   await loadCustomAssemblies();
   await loadDedicatedFiles();
+  await readGlobalPluginConfigs();
   await loaddependencies();
   await loadServers();
   server.listen(5555, '0.0.0.0');

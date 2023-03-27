@@ -8,22 +8,54 @@ const { Client } = require("./socket.js");
 const pack = require("./package.json");
 const crypto = require("crypto");
 const messageHandler = require("./messageSystem.js");
+const mt = require("./messageTemplates.js");
+const chokidar = require('chokidar');
 
 var defaultSteamPath = [__dirname, "steam"];
 var defaultServersPath = [__dirname, "servers"];
 
-function joinPathArray (array) {
-    var base = array.shift();
-    for (i in array) {
-        base = path.join(base, array[i]);
+function isDir (target) {
+    //console.log("Reading is folder:", target);
+    try {
+        fs.readdirSync(target);
+        return true;
+    } catch (e) {
+        //console.log(e);
+        return false;
     }
-    return base;
 }
+
+function joinPaths (arr) {
+    var p = '';
+    for (var i in arr) {
+        p = path.join(p, arr[i]);
+    }
+    return p;
+}
+
 
 function md5 (string) {
     let hash = crypto.createHash("md5");
     hash.update(string);
     return hash.digest("hex");
+}
+
+function readFolder(root, p = [], includeDirs = false) {
+    if (p == null) p = [];
+    var list = fs.readdirSync(path.join(root, joinPaths(p)));
+    var files = [];
+    for (i in list) {
+        var target = path.join(root, joinPaths(p), list[i]);
+        var targetStats = fs.statSync(target);
+        if (targetStats.isDirectory() && isDir(target)) {
+            if (includeDirs) files.push({filename: list[i], p: p, size: null, isDir: true});
+            files = files.concat(readFolder(root, p.concat([list[i]]), includeDirs));
+        } else {
+            var o = {filename: list[i], p: p, size: targetStats.size};
+            files.push(o);
+        }
+    }
+    return files;
 }
 
 class settings {
@@ -75,17 +107,11 @@ class ServerConfig {
   /** @type string */
   id = null;
 
-  /** @type DedicatedFile[] */
-  dedicatedFiles = [];
-
   /** @type string[] */
   plugins = [];
 
   /** @type string[] */
   customAssemblies = [];
-
-  /** @type PluginFile[] */
-  pluginFiles = [];
 
   /** @type string[] */
   dependencies = [];
@@ -107,6 +133,9 @@ class ServerConfig {
 
   /** @type Array<string> */
   installArguments = null;
+
+  /** @type boolean */
+  autoStart = false;
 
 }
 
@@ -132,6 +161,25 @@ class Server {
     /** @type string */
     serverInstallFolder;
 
+    /** @type boolean */
+    installed = false;
+
+    /** @type boolean */
+    updatePending = false;
+
+    /** @type {import("child_process")["ChildProcess"]["prototype"]} */
+    process;
+
+    /** @type import("chokidar")["FSWatcher"]["prototype"] */
+    pluginsFolderWatch;
+
+    /** @type import("chokidar")["FSWatcher"]["prototype"] */
+    configFolderWatch;
+
+    /** boolean */
+    disableWatching = false;
+
+
     /**
      * @param {NVLA} main
      * @param {ServerConfig} config
@@ -139,22 +187,345 @@ class Server {
     constructor (main, config) {
         this.main = main;
         this.config = config;
-        this.pluginsFolderPath = path.join(this.main.config.serversFolder, this.config.id, "SCP Secret Laboratory", "PluginAPI", "plugins", "global");
-        this.serverConfigsFolder = path.join(this.main.config.serversFolder, this.config.id, "SCP Secret Laboratory", "config", config.port.toString());
-        this.serverInstallFolder = path.join(this.main.config.serversFolder, this.config.id, "scpsl");
+        this.serverContainer = path.join(this.main.config.serversFolder, this.config.id);
+        this.dedicatedServerAppdata = path.join(this.serverContainer, "SCP Secret Laboratory");
+        this.pluginsFolderPath = path.join(this.dedicatedServerAppdata, "PluginAPI", "plugins", "global");
+        this.serverConfigsFolder = path.join(this.dedicatedServerAppdata, "config", config.port.toString());
+        this.serverInstallFolder = path.join(this.serverContainer, "scpsl");
         this.serverCustomAssembliesFolder = path.join(this.serverInstallFolder, "SCPSL_Data", "Managed");
+
+        try {
+            if (!fs.existsSync(this.pluginsFolderPath)) fs.mkdirSync(this.pluginsFolderPath, {recursive: true});
+            if (!fs.existsSync(this.serverConfigsFolder)) fs.mkdirSync(this.serverConfigsFolder, {recursive: true});
+            this.setupWatchers();
+        } catch (e) {
+            this.main.error.bind(this)("Failed to create watchers: " + e);
+        }
+    }
+
+    setupWatchers () {
+        this.pluginsFolderWatch = chokidar.watch(this.pluginsFolderPath, {ignoreInitial: true, persistent: true});
+        this.pluginsFolderWatch.on('all', this.onPluginConfigFileEvent.bind(this));
+        this.pluginsFolderWatch.on('error', this.main.error.bind(this));
+        this.configFolderWatch = chokidar.watch(this.serverConfigsFolder, {ignoreInitial: true, persistent: true});
+        this.configFolderWatch.on('all', this.onConfigFileEvent.bind(this));
+        this.configFolderWatch.on('error', this.main.error.bind(this));
+    }
+
+    async onConfigFileEvent (event, filePath) {
+        if (this.disableWatching) return;
+        filePath = path.relative(this.serverConfigsFolder, filePath);
+        if (event == "add" || event == "change") {
+            this.main.vega.client.sendMessage(new mt.updateConfigFile(this.config.id, filePath, fs.readFileSync(path.join(this.serverConfigsFolder, filePath)).toString("base64")));
+        } else if (event == "unlink") {
+            this.main.vega.client.sendMessage(new mt.removeConfigFile(this.config.id, filePath));
+        }
+        console.log("Config file event: " + event + " " + filePath);
+    }
+
+    async onPluginConfigFileEvent (event, filePath) {
+        if (this.disableWatching) return;
+        filePath = path.relative(this.pluginsFolderPath, filePath);
+        if (event == "add" || event == "change") {
+            this.main.vega.client.sendMessage(new mt.updatePluginConfigFile(this.config.id, filePath, fs.readFileSync(path.join(this.pluginsFolderPath, filePath)).toString("base64")));
+        } else if (event == "unlink") {
+            this.main.vega.client.sendMessage(new mt.removePluginConfigFile(this.config.id, filePath));
+        }
+        console.log("Plugin config file event: " + event + " " + filePath);
+    }
+
+    async getPluginConfigFiles () {
+        /** @type {File[]} */
+        let files;
+        try {
+            files = await this.main.vega.getPluginConfiguration(this.config.id);
+        } catch (e) {
+            this.main.error.bind(this)("Failed to get plugin configs: " + e);
+        }
+        let usedFolders = ['dependencies'];
+        for (var x in files) {
+            /** @type {File} */
+            let file = files[x];
+            let filePath = path.join(this.pluginsFolderPath, file.path);
+            if (!usedFolders.includes(path.parse(file.path).dir)) usedFolders.push(path.parse(file.path).dir);
+            this.main.log.bind(this)("Writing: " + file.path);
+            try {
+                fs.mkdirSync(path.parse(filePath).dir, {recursive: true});
+            } catch (e) {
+                this.main.error.bind(this)("Failed to create plugin config directory: " + e);
+                continue;
+            }
+            try {
+                fs.writeFileSync(filePath, file.data, {encoding: "base64"});
+            } catch (e) {
+                this.main.error.bind(this)("Failed to write plugin config file: " + e);
+                continue;
+            }
+        }
+        /** @type Array<> */
+        var currentFiles = readFolder(this.pluginsFolderPath, null, true);
+        let folders = currentFiles.filter(x => x.isDir);
+        currentFiles = currentFiles.filter(x => !x.isDir);
+        for (var i in currentFiles) {
+            let file = currentFiles[i];
+            let safe = false;
+            for (x in files) {
+                let alt = files[x];
+                if (path.join(joinPaths(file.p) || "./", file.filename) == alt.path) {
+                    safe = true;
+                    break;
+                }
+            }
+            try {
+                if (!safe && !path.join(joinPaths(file.p) || "", file.filename).startsWith("dependencies") && !(file.filename.endsWith(".dll") && path.parse(path.join(joinPaths(file.p) || "", file.filename)).dir == '')) {
+                    this.main.log.bind(this)("Deleting: " + path.join(joinPaths(file.p) || "", file.filename));
+                    fs.rmSync(path.join(this.pluginsFolderPath, joinPaths(file.p) || "", file.filename), {recursive: true});
+                }
+            } catch (e) {
+                this.main.error.bind(this)("Failed to delete unneeded plugin config file: ",  e);
+                continue;
+            }
+        }
+        for (i in folders) {
+            if (usedFolders.includes(path.join(joinPaths(folders[i].p), folders[i].filename))) continue;
+            this.main.log.bind(this)("Deleting: " + path.join(joinPaths(folders[i].p) || "", folders[i].filename));
+            try {
+                fs.rmSync(path.join(this.pluginsFolderPath, joinPaths(folders[i].p) || "", folders[i].filename), {recursive: true});
+            } catch (e) {
+                this.main.error.bind(this)("Failed to delete unneeded plugin config folder: ",  e);
+                continue;
+            }
+        }
+        this.main.log.bind(this)("Wrote plugin configs");
+    }
+
+    async getPlugins () {
+        for (var i in this.config.plugins) {
+            let plugin = this.config.plugins[i];
+            /** @type {File} */
+            let pluginData;
+            try {
+                pluginData = await this.main.vega.getPlugin(plugin);
+                fs.writeFileSync(path.join(this.pluginsFolderPath, plugin + ".dll"), Buffer.from(pluginData.data, "base64"));
+            } catch (e) {
+                this.main.error.bind(this)("Failed to get plugin '"+ plugin +"': " + e);
+                continue;
+            }
+        }
+        let files = fs.readdirSync(this.pluginsFolderPath);
+        for (var i in files) {
+            let file = files[i];
+            if (file.endsWith(".dll") && !this.config.plugins.includes(file.replace(".dll", ""))) {
+                this.main.log.bind(this)("Deleting: " + file);
+                try {
+                    fs.rmSync(path.join(this.pluginsFolderPath, file), {recursive: true});
+                } catch (e) {
+                    this.main.error.bind(this)("Failed to delete unneeded plugin: ",  e);
+                    continue;
+                }
+            }
+        }
+        this.main.log.bind(this)("Installed plugins");
+    }
+
+    async getCustomAssemblies () {
+        for (var i in this.config.customAssemblies) {
+            let customAssembly = this.config.customAssemblies[i];
+            /** @type {File} */
+            let customAssemblyData;
+            try {
+                customAssemblyData = await this.main.vega.getCustomAssembly(customAssembly);
+                fs.writeFileSync(path.join(this.serverCustomAssembliesFolder, customAssembly + ".dll"), Buffer.from(customAssemblyData.data, "base64"));
+            } catch (e) {
+                this.main.error.bind(this)("Failed to get custom assembly '"+ customAssembly +"': " + e);
+                continue;
+            }
+        }
+        this.main.log.bind(this)("Installed custom Assemblies");
+    }
+
+    async getDependencies () {
+        let targetFolder = path.join(this.pluginsFolderPath, "dependencies");
+        try {
+            if (!fs.existsSync(targetFolder)) fs.mkdirSync(targetFolder, {recursive: true});
+        } catch (e) {
+            this.main.error.bind(this)("Failed to create dependencies folder: " + e);
+            return;
+        }
+        for (var i in this.config.dependencies) {
+            let dependency = this.config.dependencies[i];
+            /** @type {File} */
+            let dependencyData;
+            try {
+                dependencyData = await this.main.vega.getDependency(dependency);
+                fs.writeFileSync(path.join(targetFolder, dependency + ".dll"), Buffer.from(dependencyData.data, "base64"));
+            } catch (e) {
+                this.main.error.bind(this)("Failed to get dependency '"+ dependency +"': " + e);
+                continue;
+            }
+        }
+        this.main.log.bind(this)("Installed dependencies");
+    }
+
+    async getDedicatedServerConfigFiles () {
+        /** @type {File[]} */
+        let files;
+        try {
+            files = await this.main.vega.getDedicatedServerConfiguration(this.config.id);
+        } catch (e) {
+            this.main.error.bind(this)("Failed to get plugin configs: " + e);
+        }
+        let usedFolders = [];
+        for (var x in files) {
+            /** @type {File} */
+            let file = files[x];
+            let filePath = path.join(this.serverConfigsFolder, file.path);
+            if (!usedFolders.includes(path.parse(file.path).dir)) usedFolders.push(path.parse(file.path).dir);
+            this.main.log.bind(this)("Writing: " + file.path);
+            try {
+                fs.mkdirSync(path.parse(filePath).dir, {recursive: true});
+            } catch (e) {
+                this.main.error.bind(this)("Failed to create dedicated server config directory: " + e);
+                continue;
+            }
+            try {
+                fs.writeFileSync(filePath, file.data, {encoding: "base64"});
+            } catch (e) {
+                this.main.error.bind(this)("Failed to write dedicated server config file: " + e);
+                continue;
+            }
+        }
+        /** @type Array<> */
+        var currentFiles = readFolder(this.serverConfigsFolder, null, true);
+        let folders = currentFiles.filter(x => x.isDir);
+        currentFiles = currentFiles.filter(x => !x.isDir);
+        for (var i in currentFiles) {
+            let file = currentFiles[i];
+            let safe = false;
+            for (x in files) {
+                let alt = files[x];
+                if (path.join(joinPaths(file.p) || "./", file.filename) == alt.path) {
+                    safe = true;
+                    break;
+                }
+            }
+            try {
+                if (!safe) {
+                    this.main.log.bind(this)("Deleting: " + path.join(joinPaths(file.p) || "", file.filename));
+                    fs.rmSync(path.join(this.serverConfigsFolder, joinPaths(file.p) || "", file.filename), {recursive: true});
+                }
+            } catch (e) {
+                this.main.error.bind(this)("Failed to delete unneeded dedicated server config file: ",  e);
+                continue;
+            }
+        }
+        for (i in folders) {
+            if (usedFolders.includes(path.join(joinPaths(folders[i].p), folders[i].filename))) continue;
+            this.main.log.bind(this)("Deleting: " + path.join(joinPaths(folders[i].p) || "", folders[i].filename));
+            try {
+                fs.rmSync(path.join(this.serverConfigsFolder, joinPaths(folders[i].p) || "", folders[i].filename), {recursive: true});
+            } catch (e) {
+                this.main.error.bind(this)("Failed to delete unneeded dedicated server config folder: ",  e);
+                continue;
+            }
+        }
+        this.main.log.bind(this)("Wrote dedicated server configs");        
+    }
+
+    async configure () {
+        await this.configFolderWatch.close();
+        await this.pluginsFolderWatch.close();
+        this.main.log.bind(this)("Configuring server " + this.config.label);
+        try {
+            await this.getPluginConfigFiles();
+        } catch (e) {
+            this.main.error.bind(this)("Failed to get plugin configs:", e);
+            return;
+        }
+        try {
+            await this.getDependencies();
+        } catch (e) {
+            this.main.error.bind(this)("Failed to get dependencies:", e);
+            return;
+        }
+        try {
+            await this.getPlugins();
+        } catch (e) {
+            this.main.error.bind(this)("Failed to get plugins:", e);
+            return;
+        }
+        try {
+            await this.getCustomAssemblies();
+        } catch (e) {
+            this.main.error.bind(this)("Failed to get custom assemblies:", e);
+            return;
+        }
+        try {
+            await this.getDedicatedServerConfigFiles();
+        } catch (e) {
+            this.main.error.bind(this)("Failed to get dedicated server configs:", e);
+            return;
+        }
+        if (this.config.autoStart && this.process == null) this.start();
+        if (this.config.verkey != null && this.config.verkey.trim() != "") {
+            try {
+                fs.writeFileSync(path.join(this.dedicatedServerAppdata, "verkey.txt"), this.config.verkey);
+            } catch (e) {
+                this.main.error.bind(this)("Failed to write verkey.txt:", e);
+            }
+        } else {
+            try {
+                if (fs.existsSync(path.join(this.dedicatedServerAppdata, "verkey.txt"))) fs.rmSync(path.join(this.dedicatedServerAppdata, "verkey.txt"));
+            } catch (e) {
+                this.main.error.bind(this)("Failed to delete verkey.txt:", e);
+            }
+        }
+        this.setupWatchers();
     }
 
     async install() {
-        this.main.log.bind(this)("Configuring server " + this.config.label, this.config);
+        this.main.log.bind(this)("Installing server " + this.config.label);
+        try {
+            //let result = await this.main.steam.downloadApp("996560", this.serverInstallFolder, this.config.beta, this.config.betaPassword, this.config.installArguments);
+            //if (result != 0) throw "Failed to install server";
+            this.main.log.bind(this)("Installed SCPSL");
+            this.installed = true;
+        } catch (e) {
+            this.main.error.bind(this)("Failed to install server:", e);
+            return;
+        }
+        await this.configure();
+    }
+
+    async uninstall () {
+        this.disableWatching = true;
+        await this.configFolderWatch.close();
+        await this.pluginsFolderWatch.close();
+        this.main.log.bind(this)("Uninstalling server " + this.config.label);
+        if (this.process != null) await this.stop(true);
+        fs.rmSync(this.serverContainer, {recursive: true});
+    }
+
+    async update () {
+        this.main.log.bind(this)("Updating server " + this.config.label, this.config);
         try {
             let result = await this.main.steam.downloadApp("996560", this.serverInstallFolder, this.config.beta, this.config.betaPassword, this.config.installArguments);
-            if (result != 0) throw "Failed to install server";
-            this.main.log.bind(this)("Installed SCPSL");
+            if (result != 0) throw "Failed to update server";
+            this.main.log.bind(this)("Updated SCPSL");
+            if (this.process != null) this.updatePending = true;
         } catch (e) {
             this.main.error.bind(this)("Failed to install server: " + e);
             return;
         }
+    }
+
+    async stop (forced) {
+        this.main.log.bind(this)((forced ? "Force " : "") + "Stopping server " + this.config.label);
+    }
+
+    async start () {
+        if (this.process != null) return;
+        this.main.log.bind(this)("Starting server " + this.config.label);
     }
 }
 
@@ -218,7 +589,7 @@ class steam extends EventEmitter{
         this.main.log.bind(this)("Checking steam");
         var basePath = defaultSteamPath;
         if (overridePath) basePath = overridePath;
-        if (Array.isArray(basePath)) basePath = joinPathArray(basePath);
+        if (Array.isArray(basePath)) basePath = joinPaths(basePath);
         if (process.platform === 'win32') {
             this.binaryPath = path.join(basePath, "steamcmd.exe");
         } else if (process.platform === 'darwin') {
@@ -288,7 +659,7 @@ class steam extends EventEmitter{
         
         proc.on('data', function(data) {
             let d = data.toString().split("\n");
-            for (i in d) {
+            for (var i in d) {
                 try {
                     this.onstdout(this.runId, d[i], true);
                 } catch (e) {
@@ -470,15 +841,17 @@ class NVLA {
         this.config = new settings();
         var serversPath = defaultServersPath;
         if (this.config.overrideServersPath && this.config.overrideServersPath.trim() != "") basePath = overridePath;
-        if (Array.isArray(serversPath)) serversPath = joinPathArray(serversPath);
+        if (Array.isArray(serversPath)) serversPath = joinPaths(serversPath);
         if (!fs.existsSync(serversPath)) fs.mkdirSync(serversPath, {recursive: true});
+
         this.steam = new steam(this);
-        
+        /*
         let check = await this.steam.check();
         if ((this.steam.found != true) || (typeof(check) == "number" && check != 0) || !this.steam.ready) {
             this.log("Steam check failed:", check);
             process.exit();
         }
+        */
         this.log("Steam ready");
         this.ServerManager = new ServerManager();
         this.ServerManager.loadLocalConfiguration();
@@ -493,6 +866,20 @@ class NVLA {
 
     error = function (...args) {
         console.error("[" + this.constructor.name + "]", ...args);
+    }
+}
+
+class File {
+    /** @type {string} */
+    path;
+
+    /** Base64 encoded data 
+     * @type {string} */
+    data;
+
+    constructor (path, data) {
+        this.path = path;
+        this.data = data;
     }
 }
 
@@ -511,6 +898,9 @@ class Vega {
 
     /** @type {messageHandler} */
     messageHandler;
+
+    /** @type {boolean} */
+    connected = false;
 
     /**
      * @param {NVLA} main
@@ -531,10 +921,11 @@ class Vega {
         this.client.on('connect', this.onConnect.bind(this));
         this.client.on('close', this.onClose.bind(this));
         this.client.on('error', this.onError.bind(this));
+        this.connected = false;
     }
 
     async onConnect () {
-        this.client.sendMessage({"type": "auth", "token": this.config.vega.password, "id": this.config.vega.id, "label": this.config.vega.label, "version": pack.version});
+        this.client.sendMessage(new mt.auth(this.main));
     }
 
     serverTimeout () {
@@ -546,17 +937,21 @@ class Vega {
         try {
             this.messageHandler.handle(m, s);
         } catch (e) {
-            this.error.bind(this)("Failed to handle message:", e + "\n" + m);
+            this.error.bind(this)("Failed to handle message:", e + "\n", m.type);
         }
     }
 
+    /**
+     * @returns {string}
+     */
     randomFileRequestId () {
         let id = Math.random().toString(36).slice(2);
-        if (this.fileRequests.has(id)) return randomId();
+        if (this.fileRequests.has(id)) return this.randomFileRequestId();
         return id;
     }
 
     async onAuthenticated () {
+        this.connected = true;
         try {
             //let data = await this.getFile("customAssembly", "Assembly-CSharp");
             //console.log("Got file:", data);
@@ -565,9 +960,71 @@ class Vega {
         }
     }
 
+    /**
+     * @param {string} serverId 
+     * @returns Promise<Array<File>>
+     */
+    async getPluginConfiguration (serverId) {
+        if (!this.connected) throw "Not connected to Vega";
+        this.log.bind(this)("Requesting plugin configuration: "+serverId);
+        return new Promise((resolve, reject) => {
+            this.client.sendMessage(new mt.pluginConfigurationRequest(this, {resolve: resolve, reject: reject}, serverId));
+        });
+    }
+
+    /**
+     * @param {string} plugin 
+     * @returns Promise<File>
+     */
+    async getPlugin (plugin) {
+        if (!this.connected) throw "Not connected to Vega";
+        this.log.bind(this)("Requesting plugin: "+plugin);
+        return new Promise((resolve, reject) => {
+            this.client.sendMessage(new mt.pluginRequest(this, {resolve: resolve, reject: reject}, plugin));
+        });
+    }
+
+    /**
+     * @param {string} plugin 
+     * @returns Promise<File>
+     */
+    async getCustomAssembly (customAssembly) {
+        if (!this.connected) throw "Not connected to Vega";
+        this.log.bind(this)("Requesting custom assembly: "+customAssembly);
+        return new Promise((resolve, reject) => {
+            this.client.sendMessage(new mt.customAssemblyRequest(this, {resolve: resolve, reject: reject}, customAssembly));
+        });
+    }
+
+    /**
+     * @param {string} plugin 
+     * @returns Promise<File>
+     */
+    async getDependency (dependency) {
+        if (!this.connected) throw "Not connected to Vega";
+        this.log.bind(this)("Requesting dependency: "+dependency);
+        return new Promise((resolve, reject) => {
+            this.client.sendMessage(new mt.dependencyRequest(this, {resolve: resolve, reject: reject}, dependency));
+        });
+    }
+
+    /**
+     * @param {string} serverId 
+     * @returns Promise<Array<File>>
+     */
+    async getDedicatedServerConfiguration (serverId) {
+        if (!this.connected) throw "Not connected to Vega";
+        this.log.bind(this)("Requesting dedicated server configuration: "+serverId);
+        return new Promise((resolve, reject) => {
+            this.client.sendMessage(new mt.dedicatedServerConfigurationRequest(this, {resolve: resolve, reject: reject}, serverId));
+        });
+    }
+
     async getFile (type, file) {
+        if (!this.connected) throw "Not connected to Vega";
         this.log.bind(this)("Requesting "+type+": "+file);
         return new Promise((resolve, reject) => {
+            new mt.pluginConfigurationRequest(this, serverId, plugin);
             let id = this.randomFileRequestId();
             this.fileRequests.set(id, {resolve: resolve, reject: reject});
             this.client.sendMessage({type: "fileRequest", id: id, fileType: type, file: file});
@@ -575,6 +1032,7 @@ class Vega {
     }
 
     async onClose () {
+        this.connected = false;
         this.log.bind(this)("Vega Connection closed, reconnecting in 5 seconds");
         setTimeout(this.connect.bind(this), 5000);
         if (this.client.pingSystem != null) this.client.pingSystem.destroy();
@@ -597,5 +1055,6 @@ module.exports = {
     NVLA: NVLA,
     Vega: Vega,
     ServerConfig: ServerConfig,
-    Server: Server
+    Server: Server,
+    File: File
 }

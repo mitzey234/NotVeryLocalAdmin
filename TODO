@@ -1,0 +1,10 @@
+add support for .ignore
+this should stop the file update tracking for files / folders that match the info on each line of this file
+I'd say we get all .ignore files in the config and plugin folders respectively and then make the code detect when a restricted file or folder is throwing an event, then reject the event and proceed
+.ignore files should automatically be synced and should probably always be read first before processing a new file event
+one other way to do it would be if an event occurs check the folder that file is in to see if its restricted, if so ignore
+
+better way to do it:
+1:
+if the folder that contains the file that had an event is not the root folder of config or pluginconfig then check the upper folder for a .ignore file and check to see if that folder the event came from is restricted, if so ignore
+go to 1

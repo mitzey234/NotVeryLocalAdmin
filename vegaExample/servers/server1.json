@@ -1,32 +1,35 @@
 {
+    "filename": "server1.json",
     "label": "Server-1",
     "id": "h984g37u",
-    "dedicatedFiles": [
-        {
-            "path": "test.txt",
-            "merging": true,
-            "data": ""
-        }
-    ],
+    "dedicatedFiles": [],
     "plugins": [
         "BrightPlugin"
     ],
-    "customAssemblies": [],
+    "customAssemblies": [
+        "Assembly-CSharp-Publicized"
+    ],
+    "dependencies": [
+        "NVorbis",
+        "SCPSLAudioApi"
+    ],
     "pluginFiles": [
         {
             "path": "test.txt",
             "merging": true,
             "data": ""
+        },
+        {
+            "path": "Bright Plugin\\hints.txt",
+            "merging": false,
+            "data": ""
         }
-    ],
-    "dependencies": [
-        "NVorbis",
-        "SCPSLAudioApi"
     ],
     "port": 7777,
     "verkey": null,
     "assignedMachine": "ouv0jl4j5aj",
     "installArguments": [
         "+@sSteamCmdForcePlatformType linux"
-    ]
+    ],
+    "autoStart": false
 }
