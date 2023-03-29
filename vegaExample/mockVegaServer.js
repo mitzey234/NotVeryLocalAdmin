@@ -17,6 +17,7 @@ const dedicatedFilesFolder = path.join(__dirname, "./globalConfig");
 const dependenciesFolder = path.join(__dirname, "./dependencies");
 
 if (!fs.existsSync(pluginsFolder)) fs.mkdirSync(pluginsFolder);
+if (!fs.existsSync(pluginConfigsFolder)) fs.mkdirSync(pluginConfigsFolder);
 if (!fs.existsSync(serversFolder)) fs.mkdirSync(serversFolder);
 if (!fs.existsSync(customAssembliesFolder)) fs.mkdirSync(customAssembliesFolder);
 if (!fs.existsSync(dedicatedFilesFolder)) fs.mkdirSync(dedicatedFilesFolder);
@@ -450,7 +451,8 @@ function onMessage (m, s) {
         dedicatedFile.data = global != null && global.merging && dedicatedFile.merging ? mergeConfigFiles(global, {path: dedicatedFile.path, merging: dedicatedFile.merging, data: m.data}) : m.data;
       }
       // Check if the file is the same as the global file
-      if (global != null && global.data == pluginFile.data) {
+      if (global != null && global.data == null) global.data = fs.readFileSync(path.join(dedicatedFilesFolder, global.path), {encoding: "base64"});
+      if (global != null && global.data == dedicatedFile.data) {
         server.dedicatedFiles = server.dedicatedFiles.filter(dedicatedFile => dedicatedFile.path != m.path);
         fs.writeFileSync(path.join(serversFolder, server.filename), JSON.stringify(server, null, 4));
         s.sendMessage({type: "updateConfig", id: server.id});
@@ -482,6 +484,7 @@ function onMessage (m, s) {
         pluginFile.data = global != null && global.merging && pluginFile.merging ? mergePluginFiles(global, {path: pluginFile.path, merging: pluginFile.merging, data: m.data}) : m.data;
       }
       // Check if the file is the same as the global file
+      if (global != null && global.data == null) global.data = fs.readFileSync(path.join(pluginConfigsFolder, global.path), {encoding: "base64"});
       if (global != null && global.data == pluginFile.data) {
         server.pluginFiles = server.pluginFiles.filter(pluginFile => pluginFile.path != m.path);
         fs.writeFileSync(path.join(serversFolder, server.filename), JSON.stringify(server, null, 4));
@@ -502,7 +505,7 @@ function onMessage (m, s) {
  */
 function mergePluginFiles (global, overwrite) {
   if (!mergingSupported.includes(path.parse(global.path).ext)) throw "Attempted to merge unsupported file type: " + path.parse(global.path).ext;
-  if (global.data == null) global.data = fs.readFileSync(path.join(pluginConfigsFolder, global.path)).toString("base64");
+  if (global.data == null) global.data = fs.readFileSync(path.join(pluginConfigsFolder, global.path), {encoding: "base64"});
   if (path.parse(global.path).ext == ".json") {
     try {
       return Buffer.from(JSON.stringify(mergeJSON(JSON.parse(Buffer.from(global.data, "base64").toString()), JSON.parse(Buffer.from(overwrite.data, "base64").toString())))).toString("base64");
@@ -538,7 +541,7 @@ function mergePluginFiles (global, overwrite) {
  */
 function mergeConfigFiles (global, overwrite) {
   if (!mergingSupported.includes(path.parse(global.path).ext)) throw "Attempted to merge unsupported file type: " + path.parse(global.path).ext;
-  if (global.data == null) global.data = fs.readFileSync(path.join(dedicatedFilesFolder, global.path)).toString("base64");
+  if (global.data == null) global.data = fs.readFileSync(path.join(dedicatedFilesFolder, global.path), {encoding: "base64"});
   if (path.parse(global.path).ext == ".json") {
     try {
       return Buffer.from(JSON.stringify(mergeJSON(JSON.parse(Buffer.from(global.data, "base64").toString()), JSON.parse(Buffer.from(overwrite.data, "base64").toString())))).toString("base64");

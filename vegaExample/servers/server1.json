@@ -2,29 +2,22 @@
     "filename": "server1.json",
     "label": "Server-1",
     "id": "h984g37u",
-    "dedicatedFiles": [],
-    "plugins": [
-        "BrightPlugin"
-    ],
-    "customAssemblies": [
-        "Assembly-CSharp-Publicized"
-    ],
-    "dependencies": [
-        "NVorbis",
-        "SCPSLAudioApi"
-    ],
-    "pluginFiles": [
+    "dedicatedFiles": [
         {
             "path": "test.txt",
             "merging": true,
             "data": ""
-        },
-        {
-            "path": "Bright Plugin\\hints.txt",
-            "merging": false,
-            "data": ""
         }
     ],
+    "plugins": [
+        "BrightPlugin"
+    ],
+    "customAssemblies": [],
+    "dependencies": [
+        "NVorbis",
+        "SCPSLAudioApi"
+    ],
+    "pluginFiles": [],
     "port": 7777,
     "verkey": null,
     "assignedMachine": "ouv0jl4j5aj",

@@ -179,6 +179,8 @@ class Server {
     /** boolean */
     disableWatching = false;
 
+    ignoreFilePaths = [];
+
 
     /**
      * @param {NVLA} main
@@ -199,11 +201,12 @@ class Server {
             if (!fs.existsSync(this.serverConfigsFolder)) fs.mkdirSync(this.serverConfigsFolder, {recursive: true});
             this.setupWatchers();
         } catch (e) {
-            this.main.error.bind(this)("Failed to create watchers: " + e);
+            this.main.error.bind(this)("Failed to create folders: " + e);
         }
     }
 
-    setupWatchers () {
+    async setupWatchers () {
+        await this.stopWatchers();
         this.pluginsFolderWatch = chokidar.watch(this.pluginsFolderPath, {ignoreInitial: true, persistent: true});
         this.pluginsFolderWatch.on('all', this.onPluginConfigFileEvent.bind(this));
         this.pluginsFolderWatch.on('error', this.main.error.bind(this));
@@ -212,26 +215,40 @@ class Server {
         this.configFolderWatch.on('error', this.main.error.bind(this));
     }
 
+    async stopWatchers () {
+        if (this.pluginsFolderWatch != null){
+            await this.pluginsFolderWatch.close();
+            this.pluginsFolderWatch = null;
+        }
+        if (this.configFolderWatch != null){
+            await this.configFolderWatch.close();
+            this.configFolderWatch = null;
+        }
+    }
+
     async onConfigFileEvent (event, filePath) {
         if (this.disableWatching) return;
         filePath = path.relative(this.serverConfigsFolder, filePath);
+        if (this.ignoreFilePaths.includes(filePath)) return this.ignoreFilePaths = this.ignoreFilePaths.filter(x => x != filePath);
         if (event == "add" || event == "change") {
             this.main.vega.client.sendMessage(new mt.updateConfigFile(this.config.id, filePath, fs.readFileSync(path.join(this.serverConfigsFolder, filePath)).toString("base64")));
         } else if (event == "unlink") {
             this.main.vega.client.sendMessage(new mt.removeConfigFile(this.config.id, filePath));
         }
-        console.log("Config file event: " + event + " " + filePath);
+        //console.log("Config file event: " + event + " " + filePath);
     }
 
     async onPluginConfigFileEvent (event, filePath) {
         if (this.disableWatching) return;
         filePath = path.relative(this.pluginsFolderPath, filePath);
+        if (filePath.startsWith("dependencies") || filePath.endsWith(".dll")) return;
+        if (this.ignoreFilePaths.includes(filePath)) return this.ignoreFilePaths = this.ignoreFilePaths.filter(x => x != filePath);
         if (event == "add" || event == "change") {
             this.main.vega.client.sendMessage(new mt.updatePluginConfigFile(this.config.id, filePath, fs.readFileSync(path.join(this.pluginsFolderPath, filePath)).toString("base64")));
         } else if (event == "unlink") {
             this.main.vega.client.sendMessage(new mt.removePluginConfigFile(this.config.id, filePath));
         }
-        console.log("Plugin config file event: " + event + " " + filePath);
+        //console.log("Plugin config file event: " + event + " " + filePath);
     }
 
     async getPluginConfigFiles () {
@@ -256,6 +273,7 @@ class Server {
                 continue;
             }
             try {
+                this.ignoreFilePaths.push(file.path);
                 fs.writeFileSync(filePath, file.data, {encoding: "base64"});
             } catch (e) {
                 this.main.error.bind(this)("Failed to write plugin config file: " + e);
@@ -279,6 +297,7 @@ class Server {
             try {
                 if (!safe && !path.join(joinPaths(file.p) || "", file.filename).startsWith("dependencies") && !(file.filename.endsWith(".dll") && path.parse(path.join(joinPaths(file.p) || "", file.filename)).dir == '')) {
                     this.main.log.bind(this)("Deleting: " + path.join(joinPaths(file.p) || "", file.filename));
+                    this.ignoreFilePaths.push(path.join(joinPaths(file.p) || "", file.filename));
                     fs.rmSync(path.join(this.pluginsFolderPath, joinPaths(file.p) || "", file.filename), {recursive: true});
                 }
             } catch (e) {
@@ -389,6 +408,7 @@ class Server {
                 continue;
             }
             try {
+                this.ignoreFilePaths.push(file.path);
                 fs.writeFileSync(filePath, file.data, {encoding: "base64"});
             } catch (e) {
                 this.main.error.bind(this)("Failed to write dedicated server config file: " + e);
@@ -412,6 +432,7 @@ class Server {
             try {
                 if (!safe) {
                     this.main.log.bind(this)("Deleting: " + path.join(joinPaths(file.p) || "", file.filename));
+                    this.ignoreFilePaths.push(path.join(joinPaths(file.p) || "", file.filename));
                     fs.rmSync(path.join(this.serverConfigsFolder, joinPaths(file.p) || "", file.filename), {recursive: true});
                 }
             } catch (e) {
@@ -433,8 +454,6 @@ class Server {
     }
 
     async configure () {
-        await this.configFolderWatch.close();
-        await this.pluginsFolderWatch.close();
         this.main.log.bind(this)("Configuring server " + this.config.label);
         try {
             await this.getPluginConfigFiles();
@@ -480,14 +499,13 @@ class Server {
                 this.main.error.bind(this)("Failed to delete verkey.txt:", e);
             }
         }
-        this.setupWatchers();
     }
 
     async install() {
         this.main.log.bind(this)("Installing server " + this.config.label);
         try {
-            //let result = await this.main.steam.downloadApp("996560", this.serverInstallFolder, this.config.beta, this.config.betaPassword, this.config.installArguments);
-            //if (result != 0) throw "Failed to install server";
+            let result = await this.main.steam.downloadApp("996560", this.serverInstallFolder, this.config.beta, this.config.betaPassword, this.config.installArguments);
+            if (result != 0) throw "Failed to install server";
             this.main.log.bind(this)("Installed SCPSL");
             this.installed = true;
         } catch (e) {
@@ -499,8 +517,7 @@ class Server {
 
     async uninstall () {
         this.disableWatching = true;
-        await this.configFolderWatch.close();
-        await this.pluginsFolderWatch.close();
+        await this.stopWatchers();
         this.main.log.bind(this)("Uninstalling server " + this.config.label);
         if (this.process != null) await this.stop(true);
         fs.rmSync(this.serverContainer, {recursive: true});

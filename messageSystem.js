@@ -406,27 +406,23 @@ class updateConfig extends messageType {
         if (this.id != null) {
             if (this.main.ServerManager.servers.has(this.id)) {
                 let server = this.main.ServerManager.servers.get(this.id);
-                await server.configFolderWatch.close();         
+                await server.stopWatchers();      
                 try {
                     await server.getDedicatedServerConfigFiles();
                 } catch (e) {
                     this.main.log.bind(this)("Failed to update config files for server " + this.id);
                 }
-                server.configFolderWatch = chokidar.watch(server.serverConfigsFolder, {ignoreInitial: true, persistent: true});
-                server.configFolderWatch.on('all', server.onConfigFileEvent.bind(server));
-                server.configFolderWatch.on('error', server.main.error.bind(server));            
+                await server.setupWatchers();
             }
         } else {
             this.main.ServerManager.servers.forEach(async function (server, id) {
-                await server.configFolderWatch.close();         
+                await server.stopWatchers();
                 try {
                     await server.getDedicatedServerConfigFiles();
                 } catch (e) {
                     this.main.log.bind(this)("Failed to update config files for server " + id);
                 }
-                server.configFolderWatch = chokidar.watch(server.serverConfigsFolder, {ignoreInitial: true, persistent: true});
-                server.configFolderWatch.on('all', server.onConfigFileEvent.bind(server));
-                server.configFolderWatch.on('error', server.main.error.bind(server));            
+                await server.setupWatchers();
             }.bind(this));
         }
     }
@@ -452,27 +448,19 @@ class updatePluginsConfig extends messageType {
         if (this.id != null) {
             if (this.main.ServerManager.servers.has(this.id)) {
                 let server = this.main.ServerManager.servers.get(this.id);
-                await server.pluginsFolderWatch.close();         
                 try {
                     await server.getPluginConfigFiles();
                 } catch (e) {
                     this.main.log.bind(this)("Failed to update plugin config files for server " + this.id);
                 }
-                server.pluginsFolderWatch = chokidar.watch(server.pluginsFolderPath, {ignoreInitial: true, persistent: true});
-                server.pluginsFolderWatch.on('all', server.onPluginConfigFileEvent.bind(server));
-                server.pluginsFolderWatch.on('error', server.main.error.bind(server));            
             }
         } else {
             this.main.ServerManager.servers.forEach(async function (server, id) {
-                await server.pluginsFolderWatch.close();         
                 try {
                     await server.getPluginConfigFiles();
                 } catch (e) {
                     this.main.log.bind(this)("Failed to update plugin config files for server " + id);
                 }
-                server.pluginsFolderWatch = chokidar.watch(server.pluginsFolderPath, {ignoreInitial: true, persistent: true});
-                server.pluginsFolderWatch.on('all', server.onPluginConfigFileEvent.bind(server));
-                server.pluginsFolderWatch.on('error', server.main.error.bind(server));            
             }.bind(this));
         }
     }

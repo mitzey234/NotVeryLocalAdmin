@@ -8,3 +8,7 @@ better way to do it:
 1:
 if the folder that contains the file that had an event is not the root folder of config or pluginconfig then check the upper folder for a .ignore file and check to see if that folder the event came from is restricted, if so ignore
 go to 1
+
+Allow updating of plugin files
+Allow updating of dependancies
+Allow updating of custom assemblies
