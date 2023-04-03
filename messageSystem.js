@@ -120,9 +120,10 @@ class servers extends messageType {
             let server;
             if (this.main.ServerManager.servers.has(this.data[i].id)) server = this.main.ServerManager.servers.get(this.data[i].id);
             else server = new this.exports.Server(this.main, this.data[i]);
+            server.config = this.data[i];
             this.main.ServerManager.servers.set(this.data[i].id, server);
             try {
-                if (!server.installed) await server.install();
+                if (!server.installed && false) await server.install();
                 else await server.configure();
                 if (!fs.existsSync(server.serverContainer)) fs.mkdirSync(server.serverContainer, {recursive: true});
                 fs.writeFileSync(path.join(server.serverContainer, "config.json"), JSON.stringify(this.data[i], null, 4));
@@ -163,6 +164,31 @@ class servers extends messageType {
     }
 }
 classes.set(servers.name, servers);
+
+class removeServer extends messageType {
+    /** @type {Array<import("./classes.js")["ServerConfig"]["prototype"]>} */
+    serverId;
+
+    /**
+     * @param main {messageHandler}
+     * @param obj {object} */
+        constructor(main, obj) {
+        super(main, obj);
+        if (obj.serverId == null || obj.serverId == undefined) throw "type 'removeServer' requires 'serverId'";
+        this.serverId = obj.serverId;
+        }
+
+    async execute() {
+        if (!this.main.ServerManager.servers.has(this.serverId)) return;
+        try {
+            await this.main.ServerManager.servers.get(this.serverId).uninstall();
+            this.main.ServerManager.servers.delete(this.serverId);
+        } catch (e) {
+            this.main.error.bind(this)("Failed to uninstall server:", e);
+        }
+    }
+}
+classes.set(removeServer.name, removeServer);
 
 class fileRequest extends messageType {
 
@@ -429,7 +455,6 @@ class updateConfig extends messageType {
 }
 classes.set(updateConfig.name, updateConfig);
 
-
 class updatePluginsConfig extends messageType {
     /** @type {string} Server id if specific*/
     id;
@@ -466,6 +491,242 @@ class updatePluginsConfig extends messageType {
     }
 }
 classes.set(updatePluginsConfig.name, updatePluginsConfig);
+
+class updatePlugin extends messageType {
+    /** @type {string} Name of plugin*/
+    name;
+
+    /** @type {string} Base64 string of plugin data*/
+    data;
+
+    /**
+     * @param main {messageHandler}
+     * @param obj {object} */
+    constructor(main, obj) {
+        super(main, obj);
+        if (obj.name == null || obj.name == undefined) throw "type 'updatePlugin' requires 'name'";
+        if (obj.data == null || obj.data == undefined) throw "type 'updatePlugin' requires 'data'";
+        this.name = obj.name;
+        this.data = obj.data;
+    }
+
+    /** 
+     * @param {import("./socket")["Client"]["prototype"]} s */
+     async execute(s) {
+        this.main.log.bind(this)("Updating plugin " + this.name);
+        this.main.ServerManager.servers.forEach(
+            /**
+             * @param {import("./classes")["Server"]["prototype"]} server
+             * @param {string} id
+             */
+            async function (server, id) {
+            try {
+                if (server.config.plugins.includes(this.name)) {
+                    fs.writeFileSync(path.join(server.pluginsFolderPath, this.name+".dll"), this.data, {encoding: "base64"});
+                    if (server.process != null) server.updatePending = true;
+                }
+            } catch (e) {
+                this.main.log.bind(this)("Failed to update plugin " + this.name + " for server " + id, e);
+            }
+        }.bind(this));
+    }
+}
+classes.set(updatePlugin.name, updatePlugin);
+
+class deletePlugin extends messageType {
+    /** @type {string} Name of plugin*/
+    name;
+
+    /**
+     * @param main {messageHandler}
+     * @param obj {object} */
+    constructor(main, obj) {
+        super(main, obj);
+        if (obj.name == null || obj.name == undefined) throw "type 'deletePlugin' requires 'name'";
+        this.name = obj.name;
+    }
+
+    /** 
+     * @param {import("./socket")["Client"]["prototype"]} s */
+     async execute(s) {
+        this.main.log.bind(this)("Deleting plugin " + this.name);
+        this.main.ServerManager.servers.forEach(
+            /**
+             * @param {import("./classes")["Server"]["prototype"]} server
+             * @param {string} id
+             */
+            async function (server, id) {
+            try {
+                if (server.config.plugins.includes(this.name)) {
+                    server.config.plugins.splice(server.config.plugins.indexOf(this.name), 1);
+                    fs.writeFileSync(path.join(server.serverContainer, "config.json"), JSON.stringify(server.config, null, 4));
+                    fs.rmSync(path.join(server.pluginsFolderPath, this.name+".dll"));
+                    if (server.process != null) server.updatePending = true;
+                }
+            } catch (e) {
+                this.main.log.bind(this)("Failed to delete plugin " + this.name + " for server " + id, e);
+            }
+        }.bind(this));
+    }
+}
+classes.set(deletePlugin.name, deletePlugin);
+
+class updateDependency extends messageType {
+    /** @type {string} Name of Dependency*/
+    name;
+
+    /** @type {string} Base64 string of Dependency data*/
+    data;
+
+    /**
+     * @param main {messageHandler}
+     * @param obj {object} */
+    constructor(main, obj) {
+        super(main, obj);
+        if (obj.name == null || obj.name == undefined) throw "type 'updateDependency' requires 'name'";
+        if (obj.data == null || obj.data == undefined) throw "type 'updateDependency' requires 'data'";
+        this.name = obj.name;
+        this.data = obj.data;
+    }
+
+    /** 
+     * @param {import("./socket")["Client"]["prototype"]} s */
+     async execute(s) {
+        this.main.log.bind(this)("Updating Dependency " + this.name);
+        this.main.ServerManager.servers.forEach(
+            /**
+             * @param {import("./classes")["Server"]["prototype"]} server
+             * @param {string} id
+             */
+            async function (server, id) {
+            try {
+                if (server.config.dependencies.includes(this.name)) {
+                    fs.writeFileSync(path.join(server.pluginsFolderPath, "dependencies", this.name+".dll"), this.data, {encoding: "base64"});
+                    if (server.process != null) server.updatePending = true;
+                }
+            } catch (e) {
+                this.main.log.bind(this)("Failed to update Dependency " + this.name + " for server " + id, e);
+            }
+        }.bind(this));
+    }
+}
+classes.set(updateDependency.name, updateDependency);
+
+class deleteDependency extends messageType {
+    /** @type {string} Name of Dependency*/
+    name;
+
+    /**
+     * @param main {messageHandler}
+     * @param obj {object} */
+    constructor(main, obj) {
+        super(main, obj);
+        if (obj.name == null || obj.name == undefined) throw "type 'deleteDependency' requires 'name'";
+        this.name = obj.name;
+    }
+
+    /** 
+     * @param {import("./socket")["Client"]["prototype"]} s */
+     async execute(s) {
+        this.main.log.bind(this)("Deleting Dependency " + this.name);
+        this.main.ServerManager.servers.forEach(
+            /**
+             * @param {import("./classes")["Server"]["prototype"]} server
+             * @param {string} id
+             */
+            async function (server, id) {
+            try {
+                if (server.config.dependencies.includes(this.name)) {
+                    server.config.dependencies.splice(server.config.dependencies.indexOf(this.name), 1);
+                    fs.writeFileSync(path.join(server.serverContainer, "config.json"), JSON.stringify(server.config, null, 4));
+                    fs.rmSync(path.join(server.pluginsFolderPath, "dependencies", this.name+".dll"));
+                    if (server.process != null) server.updatePending = true;
+                }
+            } catch (e) {
+                this.main.log.bind(this)("Failed to delete Dependency " + this.name + " for server " + id, e);
+            }
+        }.bind(this));
+    }
+}
+classes.set(deleteDependency.name, deleteDependency);
+
+class updateCustomAssembly extends messageType {
+    /** @type {string} Name of Dependency*/
+    name;
+
+    /** @type {string} Base64 string of Dependency data*/
+    data;
+
+    /**
+     * @param main {messageHandler}
+     * @param obj {object} */
+    constructor(main, obj) {
+        super(main, obj);
+        if (obj.name == null || obj.name == undefined) throw "type 'updateCustomAssembly' requires 'name'";
+        if (obj.data == null || obj.data == undefined) throw "type 'updateCustomAssembly' requires 'data'";
+        this.name = obj.name;
+        this.data = obj.data;
+    }
+
+    /** 
+     * @param {import("./socket")["Client"]["prototype"]} s */
+     async execute(s) {
+        this.main.log.bind(this)("Updating Custom Assembly " + this.name);
+        this.main.ServerManager.servers.forEach(
+            /**
+             * @param {import("./classes")["Server"]["prototype"]} server
+             * @param {string} id
+             */
+            async function (server, id) {
+            try {
+                if (server.config.customAssemblies.includes(this.name)) {
+                    fs.writeFileSync(path.join(server.serverCustomAssembliesFolder, this.name+".dll"), this.data, {encoding: "base64"});
+                    if (server.process != null) server.updatePending = true;
+                }
+            } catch (e) {
+                this.main.log.bind(this)("Failed to update Custom Assembly " + this.name + " for server " + id, e);
+            }
+        }.bind(this));
+    }
+}
+classes.set(updateCustomAssembly.name, updateCustomAssembly);
+
+class deleteCustomAssembly extends messageType {
+    /** @type {string} Name of Dependency*/
+    name;
+
+    /**
+     * @param main {messageHandler}
+     * @param obj {object} */
+    constructor(main, obj) {
+        super(main, obj);
+        if (obj.name == null || obj.name == undefined) throw "type 'deleteCustomAssembly' requires 'name'";
+        this.name = obj.name;
+    }
+
+    /** 
+     * @param {import("./socket")["Client"]["prototype"]} s */
+     async execute(s) {
+        this.main.log.bind(this)("Deleting Custom Assembly " + this.name);
+        this.main.ServerManager.servers.forEach(
+            /**
+             * @param {import("./classes")["Server"]["prototype"]} server
+             * @param {string} id
+             */
+            async function (server, id) {
+            try {
+                if (server.config.customAssemblies.includes(this.name)) {
+                    server.config.customAssemblies.splice(server.config.customAssemblies.indexOf(this.name), 1);
+                    fs.writeFileSync(path.join(server.serverContainer, "config.json"), JSON.stringify(server.config, null, 4));
+                    if (server.process != null) server.updatePending = true;
+                }
+            } catch (e) {
+                this.main.log.bind(this)("Failed to delete Custom Assembly " + this.name + " for server " + id, e);
+            }
+        }.bind(this));
+    }
+}
+classes.set(deleteCustomAssembly.name, deleteCustomAssembly);
 
 
 class messageHandler {

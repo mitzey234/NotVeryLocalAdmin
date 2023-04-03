@@ -1,7 +1,7 @@
 {
-    "filename": "server1.json",
-    "label": "Server-1",
-    "id": "h984g37u",
+    "filename": "server2.json",
+    "label": "Server-2",
+    "id": "y56r546ry6h",
     "dedicatedFiles": [
         {
             "path": "test.txt",
@@ -18,9 +18,11 @@
         "SCPSLAudioApi"
     ],
     "pluginFiles": [],
-    "port": 7790,
+    "port": 7777,
     "verkey": null,
-    "assignedMachine": "ouv0jl4j5aj",
-    "installArguments": [],
+    "assignedMachine": "",
+    "installArguments": [
+        "+@sSteamCmdForcePlatformType linux"
+    ],
     "autoStart": true
 }

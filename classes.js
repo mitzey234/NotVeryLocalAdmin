@@ -7,9 +7,11 @@ const pty = require('node-pty');
 const { Client } = require("./socket.js");
 const pack = require("./package.json");
 const crypto = require("crypto");
+const Net = require('net');
 const messageHandler = require("./messageSystem.js");
 const mt = require("./messageTemplates.js");
 const chokidar = require('chokidar');
+const chalk = require('chalk');
 
 var defaultSteamPath = [__dirname, "steam"];
 var defaultServersPath = [__dirname, "servers"];
@@ -33,6 +35,27 @@ function joinPaths (arr) {
     return p;
 }
 
+function getIgnores(folder) {
+    if (fs.existsSync(path.join(folder, ".ignore"))) {
+        try {
+            let data = fs.readFileSync(path.join(folder, ".ignore")).toString().replaceAll("\r", "");
+            return data.split("\n");
+        } catch (e) {
+            console.log(".ignore error:", e);
+            return [];
+        }
+    } else {
+        return [];
+    }
+}
+
+function isIgnored(root, file) {
+    let filename = path.parse(file).base;
+    let ignores = getIgnores(path.parse(file).dir);
+    if (ignores.includes(filename)) return true;
+    if (path.relative(root, path.parse(file).dir) == "") return false;
+    return isIgnored(root, path.parse(file).dir);
+}
 
 function md5 (string) {
     let hash = crypto.createHash("md5");
@@ -139,6 +162,18 @@ class ServerConfig {
 
 }
 
+
+let ServerStates = {
+    STOPPED: 0,
+    STARTING: 1,
+    RUNNING: 2,
+    STOPPING: 3,
+    UPDATING: 4,
+    INSTALLING: 5,
+    UNINSTALLING: 6,
+    RESTARTING: 7,
+    CONFIGURING: 8,
+}
 class Server {
     /** @type {import('child_process').ChildProcess } */
     process;
@@ -181,6 +216,15 @@ class Server {
 
     ignoreFilePaths = [];
 
+    /** @type number */
+    state = 0;
+
+    /** @type number */
+    uptime = 0;
+
+    /** @type Array<string> */
+    players;
+
 
     /**
      * @param {NVLA} main
@@ -190,10 +234,10 @@ class Server {
         this.main = main;
         this.config = config;
         this.serverContainer = path.join(this.main.config.serversFolder, this.config.id);
-        this.dedicatedServerAppdata = path.join(this.serverContainer, "SCP Secret Laboratory");
-        this.pluginsFolderPath = path.join(this.dedicatedServerAppdata, "PluginAPI", "plugins", "global");
-        this.serverConfigsFolder = path.join(this.dedicatedServerAppdata, "config", config.port.toString());
         this.serverInstallFolder = path.join(this.serverContainer, "scpsl");
+        this.dedicatedServerAppdata = path.join(this.serverInstallFolder, "AppData", "SCP Secret Laboratory");
+        this.pluginsFolderPath = path.join(this.dedicatedServerAppdata, "PluginAPI", "plugins", "global");
+        this.serverConfigsFolder = path.join(this.serverInstallFolder, "AppData", "config", config.port.toString());
         this.serverCustomAssembliesFolder = path.join(this.serverInstallFolder, "SCPSL_Data", "Managed");
 
         try {
@@ -229,6 +273,7 @@ class Server {
     async onConfigFileEvent (event, filePath) {
         if (this.disableWatching) return;
         filePath = path.relative(this.serverConfigsFolder, filePath);
+        if (isIgnored(this.serverConfigsFolder, path.join(this.serverConfigsFolder, filePath))) return;
         if (this.ignoreFilePaths.includes(filePath)) return this.ignoreFilePaths = this.ignoreFilePaths.filter(x => x != filePath);
         if (event == "add" || event == "change") {
             this.main.vega.client.sendMessage(new mt.updateConfigFile(this.config.id, filePath, fs.readFileSync(path.join(this.serverConfigsFolder, filePath)).toString("base64")));
@@ -241,6 +286,7 @@ class Server {
     async onPluginConfigFileEvent (event, filePath) {
         if (this.disableWatching) return;
         filePath = path.relative(this.pluginsFolderPath, filePath);
+        if (isIgnored(this.pluginsFolderPath, path.join(this.pluginsFolderPath, filePath))) return;
         if (filePath.startsWith("dependencies") || filePath.endsWith(".dll")) return;
         if (this.ignoreFilePaths.includes(filePath)) return this.ignoreFilePaths = this.ignoreFilePaths.filter(x => x != filePath);
         if (event == "add" || event == "change") {
@@ -295,7 +341,7 @@ class Server {
                 }
             }
             try {
-                if (!safe && !path.join(joinPaths(file.p) || "", file.filename).startsWith("dependencies") && !(file.filename.endsWith(".dll") && path.parse(path.join(joinPaths(file.p) || "", file.filename)).dir == '')) {
+                if (!isIgnored(this.pluginsFolderPath, path.join(this.pluginsFolderPath, joinPaths(file.p) || "", file.filename)) && !safe && !path.join(joinPaths(file.p) || "", file.filename).startsWith("dependencies") && !(file.filename.endsWith(".dll") && path.parse(path.join(joinPaths(file.p) || "", file.filename)).dir == '')) {
                     this.main.log.bind(this)("Deleting: " + path.join(joinPaths(file.p) || "", file.filename));
                     this.ignoreFilePaths.push(path.join(joinPaths(file.p) || "", file.filename));
                     fs.rmSync(path.join(this.pluginsFolderPath, joinPaths(file.p) || "", file.filename), {recursive: true});
@@ -306,7 +352,7 @@ class Server {
             }
         }
         for (i in folders) {
-            if (usedFolders.includes(path.join(joinPaths(folders[i].p), folders[i].filename))) continue;
+            if (usedFolders.includes(path.join(joinPaths(folders[i].p), folders[i].filename)) || isIgnored(this.pluginsFolderPath, path.join(this.pluginsFolderPath, joinPaths(folders[i].p) || "", folders[i].filename))) continue;
             this.main.log.bind(this)("Deleting: " + path.join(joinPaths(folders[i].p) || "", folders[i].filename));
             try {
                 fs.rmSync(path.join(this.pluginsFolderPath, joinPaths(folders[i].p) || "", folders[i].filename), {recursive: true});
@@ -454,6 +500,8 @@ class Server {
     }
 
     async configure () {
+        let oldState = this.state;
+        this.setState(ServerStates.CONFIGURING);
         this.main.log.bind(this)("Configuring server " + this.config.label);
         try {
             await this.getPluginConfigFiles();
@@ -485,7 +533,6 @@ class Server {
             this.main.error.bind(this)("Failed to get dedicated server configs:", e);
             return;
         }
-        if (this.config.autoStart && this.process == null) this.start();
         if (this.config.verkey != null && this.config.verkey.trim() != "") {
             try {
                 fs.writeFileSync(path.join(this.dedicatedServerAppdata, "verkey.txt"), this.config.verkey);
@@ -499,6 +546,10 @@ class Server {
                 this.main.error.bind(this)("Failed to delete verkey.txt:", e);
             }
         }
+        fs.writeFileSync(path.join(this.serverInstallFolder, "hoster_policy.txt"), "gamedir_for_configs: true");
+        if (this.process != null) this.updatePending = true;
+        if (this.state == ServerStates.CONFIGURING) this.setState(oldState);
+        if (this.config.autoStart && this.process == null) this.start();
     }
 
     async install() {
@@ -524,6 +575,9 @@ class Server {
     }
 
     async update () {
+        if (this.state == ServerStates.UPDATING) return;
+        let oldState = this.state;
+        this.setState(ServerStates.UPDATING);
         this.main.log.bind(this)("Updating server " + this.config.label, this.config);
         try {
             let result = await this.main.steam.downloadApp("996560", this.serverInstallFolder, this.config.beta, this.config.betaPassword, this.config.installArguments);
@@ -534,15 +588,109 @@ class Server {
             this.main.error.bind(this)("Failed to install server: " + e);
             return;
         }
+        try {
+            await this.getCustomAssemblies();
+        } catch (e) {
+            this.main.error.bind(this)("Failed to get custom assemblies:", e);
+            return;
+        }
+        if (this.state == ServerStates.UPDATING) this.setState(oldState);
+    }
+
+    /**
+     * @returns {Promise<Net.Server>}
+     */
+    createSocket () {
+        return new Promise(function(resolve, reject) {
+          let server = new Net.Server();
+          server.listen(0, function(s, resolve) {
+            resolve(s);
+          }.bind(this, server, resolve));
+          setTimeout(function (reject) {reject("Socket took too long to open")}.bind(null, reject), 1000);
+        }.bind(this));
     }
 
     async stop (forced) {
+        if (this.process == null) return -1; //Server process not active
+        if (this.stopInProg != null) return -2;
         this.main.log.bind(this)((forced ? "Force " : "") + "Stopping server " + this.config.label);
     }
 
+    async setState (state) {
+        this.state = state;
+        this.main.emit("serverStateChange", this);
+    }
+
+    async handleExit (code, signal) {
+        this.main.log.bind(this)(chalk.red("Server Process Exited with code:"), code, "Signal:", signal);
+        this.process = null;
+        this.players = null;
+        this.uptime = null;
+    }
+
+    async handleError (e) {
+        this.main.error.bind(this)("Error launching server:", e);
+    }
+
+    async handleStdout (data) {
+        let d = data.toString().split("\n");
+        for (i in d) if (d[i].trim() != "") {
+            if (d[i].indexOf("The referenced script") > -1 && d[i].indexOf("on this Behaviour") > -1 && d[i].indexOf("is missing!") > -1) continue;
+            if (d[i].indexOf("Filename:  Line: ") > -1) continue;
+            if (d[i].indexOf("A scripted object") > -1 && d[i].indexOf("has a different serialization layout when loading.") > -1) continue;
+            if (d[i].indexOf("Did you #ifdef UNITY_EDITOR a section of your serialized properties in any of your scripts?") > -1) continue;
+            if (d[i].indexOf("Action name") > -1 && d[i].indexOf("is not defined") > -1) continue;      
+            this.main.log.bind(this)(d[i]);
+        }
+    }
+
+    async handleStderr (data) {
+        let d = data.toString().split("\n");
+        for (i in d) if (d[i].trim() != "") {
+            if (d[i].indexOf("The referenced script") > -1 && d[i].indexOf("on this Behaviour") > -1 && d[i].indexOf("is missing!") > -1) continue;
+            if (d[i].indexOf("Filename:  Line: ") > -1) continue;
+            if (d[i].indexOf("A scripted object") > -1 && d[i].indexOf("has a different serialization layout when loading.") > -1) continue;
+            if (d[i].indexOf("Did you #ifdef UNITY_EDITOR a section of your serialized properties in any of your scripts?") > -1) continue;
+            if (d[i].indexOf("Action name") > -1 && d[i].indexOf("is not defined") > -1) continue;      
+            this.main.error.bind(this)(d[i]);
+        }
+    }
+
     async start () {
-        if (this.process != null) return;
+        if (this.process != null) return -1; //Server process already active
+        if (this.state == ServerStates.STARTING) return -2; //Server is already starting
         this.main.log.bind(this)("Starting server " + this.config.label);
+        this.setState(ServerStates.STARTING);
+        this.uptime = new Date().getTime();
+        this.players = null;
+        try {
+            this.socket = await this.createSocket();
+            const address = this.socket.address();
+            this.consolePort = address.port;
+            this.main.log.bind(this)("Console socket created on", this.consolePort);
+        } catch (e) {
+            this.main.error.bind(this)("Failed to create console socket:", e);
+            return -3;
+        }
+        let executable = fs.existsSync(path.join(this.serverInstallFolder, "SCPSL.exe")) ? path.join(this.serverInstallFolder, "SCPSL.exe") : fs.existsSync(path.join(this.serverInstallFolder, "SCPSL.x86_64")) ? path.join(this.serverInstallFolder, "SCPSL.x86_64") : null;
+        if (executable == null) {
+            this.main.error.bind(this)("Failed to find executable");
+            return -4;
+        }
+        let cwd = path.parse(executable).dir;
+        let base = path.parse(executable).base;
+        console.log((process.platform == "win32" ? "" : "./") + base);
+        console.log(cwd, "Test: " + "-appdatapath " + path.relative(cwd, this.serverContainer));
+        try {
+            this.process = spawn((process.platform == "win32" ? "" : "./") + base, ["-batchmode", "-nographics", "-nodedicateddelete", "-port"+this.config.port, "-console"+this.consolePort, "-id"+process.pid, "-appdatapath", path.relative(cwd, this.serverContainer) ,"-vegaId " + this.config.id], {cwd: cwd});
+        } catch (e) {
+            this.main.error.bind(this)("Failed to start server:", e);
+            return -5;
+        }
+        this.process.stdout.on('data', this.handleStdout.bind(this));
+        this.process.stderr.on('data', this.handleStderr.bind(this));
+        this.process.on('error', this.handleError.bind(this));
+        this.process.on('exit', this.handleExit.bind(this));
     }
 }
 
@@ -838,7 +986,7 @@ class ServerManager extends EventEmitter {
 
 }
 
-class NVLA { 
+class NVLA extends EventEmitter { 
     /** @type steam */
     steam;
 
@@ -854,13 +1002,16 @@ class NVLA {
     /** @type ServerManager */
     ServerManager;
 
+    constructor () {
+        super();
+    }
+
     async start () {
         this.config = new settings();
         var serversPath = defaultServersPath;
         if (this.config.overrideServersPath && this.config.overrideServersPath.trim() != "") basePath = overridePath;
         if (Array.isArray(serversPath)) serversPath = joinPaths(serversPath);
         if (!fs.existsSync(serversPath)) fs.mkdirSync(serversPath, {recursive: true});
-
         this.steam = new steam(this);
         /*
         let check = await this.steam.check();
@@ -874,7 +1025,6 @@ class NVLA {
         this.ServerManager.loadLocalConfiguration();
         this.vega = new Vega(this);
         this.vega.connect();
-
     }
 
     log = function (...args) {

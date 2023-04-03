@@ -60,6 +60,7 @@ async function onConfigFileEvent (event, filePath) {
     await loadDedicatedFiles();
     sendAllMachines({type: "updateConfig", id: null});
   } else if (event == "change") {
+    await loadDedicatedFiles();
     sendAllMachines({type: "updateConfig", id: null});
   }
   console.log("Config file event: " + event + " " + filePath);
@@ -75,9 +76,148 @@ async function onPluginConfigFileEvent (event, filePath) {
     await readGlobalPluginConfigs();
     sendAllMachines({type: "updatePluginsConfig", id: null});
   } else if (event == "change") {
+    await readGlobalPluginConfigs();
     sendAllMachines({type: "updatePluginsConfig", id: null});
   }
   console.log("Config file event: " + event + " " + filePath);
+}
+
+var pluginsFolderWatch = chokidar.watch(pluginsFolder, {ignoreInitial: true, persistent: true});
+pluginsFolderWatch.on('all', onPluginsFileEvent);
+pluginsFolderWatch.on('error', error => console.log(`Watcher error: ${error}`));
+
+async function onPluginsFileEvent (event, filePath) {
+  filePath = path.relative(pluginsFolder, filePath);
+  if (!filePath.endsWith(".dll")) return;
+  let name = path.parse(filePath).name;
+  if (event == "add" || event == "change") {
+    await loadPlugins();
+    servers.forEach(
+      /** 
+       * @param {serverConfig} server
+       */
+    function (server) {
+      if (server.plugins.includes(name) && server.assignedMachine != null && machines.has(server.assignedMachine)) {
+        try {
+          machines.get(server.assignedMachine).socket.sendMessage({type: "updatePlugin", name: name, data: fs.readFileSync(path.join(pluginsFolder, filePath), {encoding: "base64"})});
+        } catch (e) {
+          console.log("Failed plugin update: ", e);
+        }
+      }
+    });
+  } else if (event == "unlink") {
+    await loadPlugins();
+    servers.forEach(
+      /** 
+       * @param {serverConfig} server
+       */
+    function (server) {
+      if (server.plugins.includes(name)) {
+        server.plugins = server.plugins.filter(x => x != name);
+        fs.writeFileSync(path.join(serversFolder, server.filename), JSON.stringify(server, null, 4));
+        if (server.assignedMachine != null && machines.has(server.assignedMachine)) {
+          try {
+            machines.get(server.assignedMachine).socket.sendMessage({type: "deletePlugin", name: name});
+          } catch (e) {
+            console.log("Failed plugin removal: ", e);
+          }
+        }
+      }
+    });
+  }
+  console.log("Plugin file event: " + event + " " + filePath);
+}
+
+var dependenciesFolderWatch = chokidar.watch(dependenciesFolder, {ignoreInitial: true, persistent: true});
+dependenciesFolderWatch.on('all', onDependenciesFileEvent);
+dependenciesFolderWatch.on('error', error => console.log(`Watcher error: ${error}`));
+
+async function onDependenciesFileEvent (event, filePath) {
+  filePath = path.relative(dependenciesFolder, filePath);
+  if (!filePath.endsWith(".dll")) return;
+  let name = path.parse(filePath).name;
+  if (event == "add" || event == "change") {
+    await loaddependencies();
+    servers.forEach(
+      /** 
+       * @param {serverConfig} server
+       */
+    function (server) {
+      if (server.dependencies.includes(name) && server.assignedMachine != null && machines.has(server.assignedMachine)) {
+        try {
+          machines.get(server.assignedMachine).socket.sendMessage({type: "updateDependency", name: name, data: fs.readFileSync(path.join(dependenciesFolder, filePath), {encoding: "base64"})});
+        } catch (e) {
+          console.log("Failed Dependency update: ", e);
+        }
+      }
+    });
+  } else if (event == "unlink") {
+    await loaddependencies();
+    servers.forEach(
+      /** 
+       * @param {serverConfig} server
+       */
+    function (server) {
+      if (server.dependencies.includes(name)) {
+        server.dependencies = server.dependencies.filter(x => x != name);
+        fs.writeFileSync(path.join(serversFolder, server.filename), JSON.stringify(server, null, 4));
+        if (server.assignedMachine != null && machines.has(server.assignedMachine)) {
+          try {
+            machines.get(server.assignedMachine).socket.sendMessage({type: "deleteDependency", name: name});
+          } catch (e) {
+            console.log("Failed Dependency removal: ", e);
+          }
+        }
+      }
+    });
+  }
+  console.log("Dependency file event: " + event + " " + filePath);
+}
+
+var customAssembliesFolderWatch = chokidar.watch(customAssembliesFolder, {ignoreInitial: true, persistent: true});
+customAssembliesFolderWatch.on('all', onCustomAssembliesFileEvent);
+customAssembliesFolderWatch.on('error', error => console.log(`Watcher error: ${error}`));
+
+async function onCustomAssembliesFileEvent (event, filePath) {
+  filePath = path.relative(customAssembliesFolder, filePath);
+  if (!filePath.endsWith(".dll")) return;
+  let name = path.parse(filePath).name;
+  if (event == "add" || event == "change") {
+    await loadCustomAssemblies();
+    servers.forEach(
+      /** 
+       * @param {serverConfig} server
+       */
+    function (server) {
+      if (server.customAssemblies.includes(name) && server.assignedMachine != null && machines.has(server.assignedMachine)) {
+        try {
+          machines.get(server.assignedMachine).socket.sendMessage({type: "updateCustomAssembly", name: name, data: fs.readFileSync(path.join(customAssembliesFolder, filePath), {encoding: "base64"})});
+        } catch (e) {
+          console.log("Failed Custom Assembly update: ", e);
+        }
+      }
+    });
+  } else if (event == "unlink") {
+    await loadCustomAssemblies();
+    servers.forEach(
+      /** 
+       * @param {serverConfig} server
+       */
+    function (server) {
+      if (server.customAssemblies.includes(name)) {
+        server.customAssemblies = server.customAssemblies.filter(x => x != name);
+        fs.writeFileSync(path.join(serversFolder, server.filename), JSON.stringify(server, null, 4));
+        if (server.assignedMachine != null && machines.has(server.assignedMachine)) {
+          try {
+            machines.get(server.assignedMachine).socket.sendMessage({type: "deleteCustomAssembly", name: name});
+          } catch (e) {
+            console.log("Failed Custom Assembly removal: ", e);
+          }
+        }
+      }
+    });
+  }
+  console.log("Custom Assembly file event: " + event + " " + filePath);
 }
 
 function sendAllMachines (obj) {
@@ -790,24 +930,29 @@ async function loaddependencies () {
   try {
     filenames = fs.readdirSync(dependenciesFolder);
   } catch (e) {
-    console.log(e);
+    console.log("Failed to read dependency folder:", e);
     return;
   }
   for (i in filenames) {
     let filename = filenames[i];
     if (filename.endsWith(".dll")) {
-      let filePath = path.join(dependenciesFolder, filename);
-      let resolve = path.parse(filePath);
-      let assembly = new Assembly();
-      assembly.name = resolve.name;
-      assembly.md5 = await getMD5(filePath);
-      let info = vi(filePath);
-      assembly.author = info.CompanyName || "Unknown Author";
-      assembly.label = info.ProductName || filename.replace(".dll", "");
-      assembly.version = info["Assembly Version"] || info.ProductVersion || info.FileVersion || "Unknown Version";
-      if (assembly.version == "0.0.0.0") "Unknown Version";
-      dependencies.set(assembly.name, assembly);
-      console.log("Loaded assembly '"+assembly.label+"'");
+      try {
+        let filePath = path.join(dependenciesFolder, filename);
+        let resolve = path.parse(filePath);
+        let assembly = new Assembly();
+        assembly.name = resolve.name;
+        assembly.md5 = await getMD5(filePath);
+        let info = vi(filePath);
+        assembly.author = info.CompanyName || "Unknown Author";
+        assembly.label = info.ProductName || filename.replace(".dll", "");
+        assembly.version = info["Assembly Version"] || info.ProductVersion || info.FileVersion || "Unknown Version";
+        if (assembly.version == "0.0.0.0") "Unknown Version";
+        dependencies.set(assembly.name, assembly);
+        console.log("Loaded assembly '"+assembly.label+"'");  
+      } catch (e) {
+        console.log("Failed to load dependency '"+filename+"':", e);
+        continue;
+      }
     }
   }
   console.log("Loaded " + dependencies.size + " dependencies");
@@ -874,6 +1019,7 @@ function loadServerConfig (obj) {
   config.beta = obj.beta;
   config.betaPassword = obj.betaPassword;
   config.installArguments = obj.installArguments;
+  config.autoStart = obj.autoStart;
   for (i in obj.dedicatedFiles) {
     let data = obj.dedicatedFiles[i];
     if (typeof(data.data) != "string") throw "Invalid dedicated file data";
