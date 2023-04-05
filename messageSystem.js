@@ -57,7 +57,7 @@ class auth extends messageType {
      async execute(s) {
         if (this.data == true) {
             s.pingSystem = new pingSystem(s.sendMessage, this.vega.serverTimeout.bind(this.vega));
-            this.vega.log.bind(this)("Vega Connection completed");
+            this.vega.log("Vega Connection completed", {messageType: this.constructor.name}, {color: 10});
             if (this.main.config.vega.id == null && this.id != null) {
                 this.main.config.vega.id = this.id;
                 fs.writeFileSync("./config.json", JSON.stringify(this.main.config, null, 4));
@@ -129,7 +129,7 @@ class servers extends messageType {
                 fs.writeFileSync(path.join(server.serverContainer, "config.json"), JSON.stringify(this.data[i], null, 4));
                 fs.writeFileSync(path.join(server.serverContainer, server.config.label + ".txt"), "This file is only here to help identify the server's label in the file system for a user. It is not used by the server or NVLA in any way.");
             } catch (e) {
-                this.main.error.bind(this)("Failed to install server:", e);
+                this.vega.error("Failed to install server: {e} ", {messageType: this.constructor.name, e: e.code || e.message, stack: e.stack});
                 server.error = e;
             }
         }
@@ -149,7 +149,7 @@ class servers extends messageType {
         try {
             files = fs.readdirSync(this.main.config.serversFolder);
         } catch (e) {
-            this.main.error.bind(this)("Failed to read servers folder:", e);
+            this.vega.error("Failed to read servers folder: {e}", {messageType: this.constructor.name, e: e.code, stack: e.stack});
             return;
         }
         for (var i in files) {
@@ -157,7 +157,7 @@ class servers extends messageType {
                 try {
                     fs.rmSync(path.join(this.main.config.serversFolder, files[i]), {recursive: true});
                 } catch (e) {
-                    this.main.error.bind(this)("Failed to delete item '"+files[i]+"' in servers folder:", e);
+                    this.vega.error("Failed to delete item '{item}' in servers folder: {e}", {messageType: this.constructor.name, item: files[i], e: e.code, stack: e.stack});
                 }
             }
         }
