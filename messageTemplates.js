@@ -124,14 +124,40 @@ class dedicatedServerConfigurationRequest {
     }
 }
 
-class updateConfigFile {
+class globalDedicatedServerConfigurationRequest {
     /* @type {string} */
-    path;
+    type;
 
     /* @type {string} */
     serverId;
 
     /* @type {string} */
+    id;
+
+    /**
+     * @param {import("./classes")["NVLA"]["prototype"]["vega"]} vega
+     * @param {object} promise object
+     * @param {string} serverId
+     */
+    constructor (vega, promise, serverId) {
+        this.type = "globalDedicatedServerConfigurationRequest";
+        this.id = vega.randomFileRequestId();
+        vega.fileRequests.set(this.id, promise);
+        this.serverId = serverId;
+    }
+}
+
+class updateConfigFile {
+    /** @type {Array<string>} */
+    path;
+
+    /** @type {string} */
+    name;
+
+    /** @type {string} */
+    serverId;
+
+    /** @type {string} */
     data;
 
     /**
@@ -139,19 +165,23 @@ class updateConfigFile {
      * @param {string} path
      * @param {string} data
      */
-    constructor (serverId, path, data) {
+    constructor (serverId, path, name, data) {
         this.type = "updateConfigFile";
         this.data = data;
         this.path = path;
+        this.name = name;
         this.serverId = serverId;
     }
 }
 
 class removeConfigFile {
-    /* @type {string} */
+    /** @type {Array<string>} */
     path;
 
-    /* @type {string} */
+    /** @type {string} */
+    name;
+
+    /** @type {string} */
     serverId;
 
     /**
@@ -159,21 +189,25 @@ class removeConfigFile {
      * @param {string} path
      * @param {string} data
      */
-    constructor (serverId, path) {
+    constructor (serverId, path, name) {
         this.type = "removeConfigFile";
         this.path = path;
         this.serverId = serverId;
+        this.name = name;
     }
 }
 
-class updatePluginConfigFile {
-    /* @type {string} */
+class updateGlobalConfigFile {
+    /** @type {Array<string>} */
     path;
 
-    /* @type {string} */
+    /** @type {string} */
+    name;
+
+    /** @type {string} */
     serverId;
 
-    /* @type {string} */
+    /** @type {string} */
     data;
 
     /**
@@ -181,19 +215,23 @@ class updatePluginConfigFile {
      * @param {string} path
      * @param {string} data
      */
-    constructor (serverId, path, data) {
-        this.type = "updatePluginConfigFile";
+    constructor (serverId, path, name, data) {
+        this.type = "updateGlobalConfigFile";
         this.data = data;
         this.path = path;
+        this.name = name;
         this.serverId = serverId;
     }
 }
 
-class removePluginConfigFile {
-    /* @type {string} */
+class removeGlobalConfigFile {
+    /** @type {Array<string>} */
     path;
 
-    /* @type {string} */
+    /** @type {string} */
+    name;
+
+    /** @type {string} */
     serverId;
 
     /**
@@ -201,10 +239,61 @@ class removePluginConfigFile {
      * @param {string} path
      * @param {string} data
      */
-    constructor (serverId, path) {
+    constructor (serverId, path, name) {
+        this.type = "removeGlobalConfigFile";
+        this.path = path;
+        this.serverId = serverId;
+        this.name = name;
+    }
+}
+
+class updatePluginConfigFile {
+    /** @type {Array<string>} */
+    path;
+
+    /** @type {string} */
+    name;
+
+    /** @type {string} */
+    serverId;
+
+    /** @type {string} */
+    data;
+
+    /**
+     * @param {string} serverId
+     * @param {string} path
+     * @param {string} data
+     */
+    constructor (serverId, path, name, data) {
+        this.type = "updatePluginConfigFile";
+        this.data = data;
+        this.path = path;
+        this.name = name;
+        this.serverId = serverId;
+    }
+}
+
+class removePluginConfigFile {
+    /** @type {Array<string>} */
+    path;
+
+    /** @type {string} */
+    name;
+
+    /** @type {string} */
+    serverId;
+
+    /**
+     * @param {string} serverId
+     * @param {string} path
+     * @param {string} data
+     */
+    constructor (serverId, path, name) {
         this.type = "removePluginConfigFile";
         this.path = path;
         this.serverId = serverId;
+        this.name = name;
     }
 }
 
@@ -248,5 +337,8 @@ module.exports = {
     updateConfigFile: updateConfigFile,
     removeConfigFile: removeConfigFile,
     updatePluginConfigFile: updatePluginConfigFile,
-    removePluginConfigFile: removePluginConfigFile
+    removePluginConfigFile: removePluginConfigFile,
+    globalDedicatedServerConfigurationRequest: globalDedicatedServerConfigurationRequest,
+    updateGlobalConfigFile: updateGlobalConfigFile,
+    removeGlobalConfigFile: removeGlobalConfigFile
 }

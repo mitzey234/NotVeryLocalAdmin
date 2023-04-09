@@ -1,0 +1,44 @@
+const winston = require("winston");
+const { SeqTransport } = require("@datalust/winston-seq");
+
+/** @type {import("./classes")["seqSettings"]["prototype"]} */
+let settings;
+
+/** @type import("winston")["Logger"]["prototype"] */
+let logger;
+
+
+process.on("message", onMessage);
+function onMessage (m) {
+    if (m.type == "config") {
+        settings = m.settings;
+        let transports = [];
+        transports.push(new SeqTransport({
+            level: "verbose",
+            format: winston.format.printf((info) => {
+                for (i in info.replacementData) info[i] = info.replacementData[i];
+                delete info.replacementData;
+                return info.message;
+            }),
+            serverUrl: "http" + (settings.secure ? "s" : "") + "://" + settings.host,
+            apiKey: settings.apiKey,
+            onError: (e) => {
+                console.error(e);
+            },
+        }));
+        logger = winston.createLogger({
+            format: winston.format.combine(
+              winston.format.errors({ stack: true }),
+              winston.format.json()
+            ),
+            transports: transports,
+        });
+        process.send({type: "ready"});
+    } else if (m.type == "log") {
+        if (m.data.level == "info") logger.info("", {replacementData: m.data});
+        else if (m.data.level == "verbose") logger.verbose("", {replacementData: m.data});
+        else if (m.data.level == "error") logger.error("", {replacementData: m.data});
+    }
+}
+
+process.send({type: "started"});

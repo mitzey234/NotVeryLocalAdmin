@@ -4,11 +4,15 @@
     "id": "y56r546ry6h",
     "dedicatedFiles": [
         {
-            "path": "test.txt",
+            "path": [
+                ""
+            ],
+            "name": "test.txt",
             "merging": true,
             "data": ""
         }
     ],
+    "globalDedicatedFiles": [],
     "plugins": [
         "BrightPlugin"
     ],
@@ -24,5 +28,10 @@
     "installArguments": [
         "+@sSteamCmdForcePlatformType linux"
     ],
-    "autoStart": true
+    "autoStart": true,
+    "dailyRestarts": false,
+    "restartTime": {
+        "hour": 0,
+        "minute": 0
+    }
 }

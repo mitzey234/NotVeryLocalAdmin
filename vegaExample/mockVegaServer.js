@@ -13,7 +13,8 @@ const pluginsFolder = path.join(__dirname, "./plugins");
 const pluginConfigsFolder = path.join(__dirname, "./pluginConfig");
 const serversFolder = path.join(__dirname, "./servers");
 const customAssembliesFolder = path.join(__dirname, "./customAssemblies");
-const dedicatedFilesFolder = path.join(__dirname, "./globalConfig");
+const dedicatedFilesFolder = path.join(__dirname, "./serverConfig");
+const globalDedicatedFilesFolder = path.join(__dirname, "./globalConfig");
 const dependenciesFolder = path.join(__dirname, "./dependencies");
 
 if (!fs.existsSync(pluginsFolder)) fs.mkdirSync(pluginsFolder);
@@ -41,6 +42,9 @@ let dependencies = new Map();
 /** @type Map<string,DedicatedFile> */
 let dedicatedFiles = new Map();
 
+/** @type Map<string,DedicatedFile> */
+let globalDedicatedFiles = new Map();
+
 /** @type Array<PluginFile> */
 let pluginFiles = new Map();
 
@@ -64,6 +68,22 @@ async function onConfigFileEvent (event, filePath) {
     sendAllMachines({type: "updateConfig", id: null});
   }
   console.log("Config file event: " + event + " " + filePath);
+}
+
+var globalConfigFolderWatch = chokidar.watch(globalDedicatedFilesFolder, {ignoreInitial: true, persistent: true});
+globalConfigFolderWatch.on('all', onGlobalConfigFileEvent);
+globalConfigFolderWatch.on('error', error => console.log(`Watcher error: ${error}`));
+
+async function onGlobalConfigFileEvent (event, filePath) {
+  filePath = path.relative(globalDedicatedFilesFolder, filePath);
+  if (event == "add" || event == "unlink") {
+    await loadGlobalDedicatedFiles();
+    sendAllMachines({type: "updateGlobalConfig", id: null});
+  } else if (event == "change") {
+    await loadGlobalDedicatedFiles();
+    sendAllMachines({type: "updateGlobalConfig", id: null});
+  }
+  console.log("Global Config file event: " + event + " " + filePath);
 }
 
 var pluginConfigFolderWatch = chokidar.watch(pluginConfigsFolder, {ignoreInitial: true, persistent: true});
@@ -280,8 +300,11 @@ class Assembly {
 }
 
 class DedicatedFile {
+  /** @type Array<string> */
+  path = [];
+
   /** @type string */
-  path = "";
+  name = "";
 
   /** @type boolean */
   merging = false;
@@ -290,20 +313,24 @@ class DedicatedFile {
   data = null;
 
   /**
-   * @param {string} path
+   * @param {string} spath
    * @param {boolean} merging
    * @param {string} data
    */
-  constructor (path, merging, data) {
-    this.path = path;
+  constructor (spath = "", merging = false, data) {
+    this.path = path.parse(path.normalize(spath)).dir.split(path.sep);
+    this.name = path.parse(spath).base;
     this.merging = merging;
     this.data = data;
   }
 }
 
 class PluginFile {
+    /** @type Array<string> */
+    path = [];
+
     /** @type string */
-    path = "";
+    name = "";
 
     /** @type boolean */
     merging = false;
@@ -312,8 +339,14 @@ class PluginFile {
      * @type string */
     data = null;
   
-    constructor (path, merging, data) {
-      this.path = path;
+    /**
+     * @param {string} spath
+     * @param {boolean} merging
+     * @param {string} data
+     */
+    constructor (spath = "", merging = false, data) {
+      this.path = path.parse(path.normalize(spath)).dir.split(path.sep);
+      this.name = path.parse(spath).base;
       this.merging = merging;
       this.data = data;
     }
@@ -332,6 +365,9 @@ class serverConfig {
 
   /** @type DedicatedFile[] */
   dedicatedFiles = [];
+
+  /** @type DedicatedFile[] */
+  globalDedicatedFiles = [];
 
   /** @type string[] */
   plugins = [];
@@ -366,6 +402,12 @@ class serverConfig {
   /** @type boolean */
   autoStart = false;
 
+  /** @type boolean */
+  dailyRestarts = false;
+
+  /** @type restartTime */
+  restartTime = new restartTime();
+
   simplified () {
     let obj = {};
     obj.label = this.label;
@@ -380,8 +422,18 @@ class serverConfig {
     obj.customAssemblies = this.customAssemblies;
     obj.plugins = this.plugins;
     obj.autoStart = this.autoStart;
+    obj.dailyRestarts = this.dailyRestarts;
+    obj.restartTime = this.restartTime;
     return obj;
   }
+}
+
+class restartTime {
+  /** @type number */
+  hour = 0;
+
+  /** @type number */
+  minute = 0;
 }
 
 function getAssignedServers (machine) {
@@ -473,19 +525,20 @@ function onMessage (m, s) {
         let pluginFile = pluginFiles[i];
         let pf = new PluginFile();
         try {
-          pf.data = fs.readFileSync(path.join(pluginConfigsFolder, pluginFile.path), {encoding: 'base64'});
+          pf.data = fs.readFileSync(path.join(pluginConfigsFolder, joinPaths(pluginFile.path), pluginFile.name), {encoding: 'base64'});
         } catch (e) {
           console.log("Failed to load plugin file " + pluginFile.path);
           continue;
         }
         pf.path = pluginFile.path;
+        pf.name = pluginFile.name;
         pf.merging = pluginFile.merging;
-        files.set(pluginFile.path, pf);
+        files.set(path.join(joinPaths(pluginFile.path), pluginFile.name), pf);
       }
       for (x in server.pluginFiles) {
         let pluginFile = server.pluginFiles[x];
-        if (files.has(pluginFile.path)) {
-          let global = files.get(pluginFile.path);
+        if (files.has(path.join(joinPaths(pluginFile.path), pluginFile.name))) {
+          let global = files.get(path.join(joinPaths(pluginFile.path), pluginFile.name));
           let data;
           if (global.merging && pluginFile.merging) {
             data = mergePluginFiles(global, pluginFile);
@@ -495,6 +548,7 @@ function onMessage (m, s) {
           let pf = new PluginFile();
           pf.path = pluginFile.path;
           pf.data = data;
+          pf.name = pluginFile.name;
           pf.merging = pluginFile.merging;
         }
         files.set(pluginFile.path, pluginFile);
@@ -539,19 +593,20 @@ function onMessage (m, s) {
       dedicatedFiles.forEach(dedicatedFile => {
         let df = new DedicatedFile();
         try {
-          df.data = fs.readFileSync(path.join(dedicatedFilesFolder, dedicatedFile.path), {encoding: 'base64'});
+          df.data = fs.readFileSync(path.join(dedicatedFilesFolder, joinPaths(dedicatedFile.path), dedicatedFile.name), {encoding: 'base64'});
         } catch (e) {
           console.log("Failed to load dedicated file " + dedicatedFile.path);
           return;
         }
         df.path = dedicatedFile.path;
         df.merging = dedicatedFile.merging;
-        files.set(dedicatedFile.path, df);
+        df.name = dedicatedFile.name;
+        files.set(path.join(joinPaths(dedicatedFile.path), dedicatedFile.name), df);
       });
       for (x in server.dedicatedFiles) {
         let dedicatedFile = server.dedicatedFiles[x];
-        if (files.has(dedicatedFile.path)) {
-          let global = files.get(dedicatedFile.path);
+        if (files.has(path.join(joinPaths(dedicatedFile.path), dedicatedFile.name))) {
+          let global = files.get(path.join(joinPaths(dedicatedFile.path), dedicatedFile.name));
           let data;
           if (global.merging && dedicatedFile.merging) {
             data = mergeConfigFiles(global, dedicatedFile);
@@ -560,6 +615,7 @@ function onMessage (m, s) {
           }
           let df = new DedicatedFile();
           df.path = dedicatedFile.path;
+          df.name = dedicatedFile.name;
           df.data = data;
           df.merging = dedicatedFile.merging;
         }
@@ -570,19 +626,20 @@ function onMessage (m, s) {
     } else if (m.type == "removeConfigFile") {
       if (!servers.has(m.serverId)) return;
       let server = servers.get(m.serverId);
-      server.dedicatedFiles = server.dedicatedFiles.filter(dedicatedFile => dedicatedFile.path != m.path);
+      server.dedicatedFiles = server.dedicatedFiles.filter(dedicatedFile => joinPaths(dedicatedFile.path) + dedicatedFile.name != joinPaths(m.path) + m.name);
       fs.writeFileSync(path.join(serversFolder, server.filename), JSON.stringify(server, null, 4));
       s.sendMessage({type: "updateConfig", id: server.id});
     } else if (m.type == "updateConfigFile") {
       if (!servers.has(m.serverId)) return;
       let server = servers.get(m.serverId);
-      let index = server.dedicatedFiles.findIndex(dedicatedFile => dedicatedFile.path == m.path)
+      let index = server.dedicatedFiles.findIndex(dedicatedFile => joinPaths(dedicatedFile.path)+dedicatedFile.name ==  joinPaths(m.path)+m.name);
       let dedicatedFile;
       let global;
-      if (dedicatedFiles.has(m.path)) global = dedicatedFiles.get(m.path);
+      if (dedicatedFiles.has(path.join(joinPaths(m.path), m.name))) global = dedicatedFiles.get(path.join(joinPaths(m.path), m.name));
       if (index == -1) {
         dedicatedFile = new DedicatedFile();
         dedicatedFile.path = m.path;
+        dedicatedFile.name = m.name;
         dedicatedFile.merging = false;
         dedicatedFile.data = m.data;
         server.dedicatedFiles.push(dedicatedFile);
@@ -591,9 +648,9 @@ function onMessage (m, s) {
         dedicatedFile.data = global != null && global.merging && dedicatedFile.merging ? mergeConfigFiles(global, {path: dedicatedFile.path, merging: dedicatedFile.merging, data: m.data}) : m.data;
       }
       // Check if the file is the same as the global file
-      if (global != null && global.data == null) global.data = fs.readFileSync(path.join(dedicatedFilesFolder, global.path), {encoding: "base64"});
+      if (global != null && global.data == null) global.data = fs.readFileSync(path.join(dedicatedFilesFolder, joinPaths(global.path), global.name), {encoding: "base64"});
       if (global != null && global.data == dedicatedFile.data) {
-        server.dedicatedFiles = server.dedicatedFiles.filter(dedicatedFile => dedicatedFile.path != m.path);
+        server.dedicatedFiles = server.dedicatedFiles.filter(dedicatedFile => joinPaths(dedicatedFile.path) + dedicatedFile.name != joinPaths(m.path) + m.name);
         fs.writeFileSync(path.join(serversFolder, server.filename), JSON.stringify(server, null, 4));
         s.sendMessage({type: "updateConfig", id: server.id});
         return;
@@ -603,19 +660,21 @@ function onMessage (m, s) {
     } else if (m.type == "removePluginConfigFile") {
       if (!servers.has(m.serverId)) return;
       let server = servers.get(m.serverId);
-      server.pluginFiles = server.pluginFiles.filter(pluginFile => pluginFile.path != m.path);
+      server.pluginFiles = server.pluginFiles.filter(pluginFile => joinPaths(pluginFile.path) + pluginFile.name != joinPaths(m.path) + m.name);
       fs.writeFileSync(path.join(serversFolder, server.filename), JSON.stringify(server, null, 4));
       s.sendMessage({type: "updatePluginsConfig", id: server.id});
     } else if (m.type == "updatePluginConfigFile") {
       if (!servers.has(m.serverId)) return;
       let server = servers.get(m.serverId);
-      let index = server.pluginFiles.findIndex(pluginFile => pluginFile.path == m.path)
+      let index = server.pluginFiles.findIndex(pluginFile => joinPaths(pluginFile.path)+pluginFile.name ==  joinPaths(m.path)+m.name);
       let pluginFile;
       let global;
-      if (pluginFiles.findIndex(file => file.path == m.path) != -1) global = pluginFiles[pluginFiles.findIndex(file => file.path == m.path)];
+      let globalIndex = pluginFiles.findIndex(file => file.path.join(",")+"|"+file.name == m.path.join(",")+"|"+m.name);
+      if (globalIndex != -1) global = pluginFiles[globalIndex];
       if (index == -1) {
         pluginFile = new PluginFile();
         pluginFile.path = m.path;
+        pluginFile.name = m.name;
         pluginFile.merging = false;
         pluginFile.data = m.data;
         server.pluginFiles.push(pluginFile);
@@ -624,15 +683,87 @@ function onMessage (m, s) {
         pluginFile.data = global != null && global.merging && pluginFile.merging ? mergePluginFiles(global, {path: pluginFile.path, merging: pluginFile.merging, data: m.data}) : m.data;
       }
       // Check if the file is the same as the global file
-      if (global != null && global.data == null) global.data = fs.readFileSync(path.join(pluginConfigsFolder, global.path), {encoding: "base64"});
+      if (global != null && global.data == null) global.data = fs.readFileSync(path.join(pluginConfigsFolder, joinPaths(global.path), global.name), {encoding: "base64"});
       if (global != null && global.data == pluginFile.data) {
-        server.pluginFiles = server.pluginFiles.filter(pluginFile => pluginFile.path != m.path);
+        server.pluginFiles = server.pluginFiles.filter(pluginFile => joinPaths(pluginFile.path)+pluginFile.name != joinPaths(m.path)+m.name);
         fs.writeFileSync(path.join(serversFolder, server.filename), JSON.stringify(server, null, 4));
         s.sendMessage({type: "updatePluginsConfig", id: server.id});
         return;
       }
       fs.writeFileSync(path.join(serversFolder, server.filename), JSON.stringify(server, null, 4));
       s.sendMessage({type: "updatePluginsConfig", id: server.id});
+    } else if (m.type == "globalDedicatedServerConfigurationRequest") {
+      if (!servers.has(m.serverId)) return s.sendMessage({type: m.type, id: m.id, e: "Server not found"});
+      let server = servers.get(m.serverId);
+      /** @type Map<string, PluginFile> */
+      let files = new Map();
+      globalDedicatedFiles.forEach(dedicatedFile => {
+        let df = new DedicatedFile();
+        try {
+          df.data = fs.readFileSync(path.join(globalDedicatedFilesFolder, joinPaths(dedicatedFile.path), dedicatedFile.name), {encoding: 'base64'});
+        } catch (e) {
+          console.log("Failed to load global dedicated file " + dedicatedFile.path);
+          return;
+        }
+        df.path = dedicatedFile.path;
+        df.merging = dedicatedFile.merging;
+        df.name = dedicatedFile.name;
+        files.set(path.join(joinPaths(dedicatedFile.path), dedicatedFile.name), df);
+      });
+      for (x in server.globalDedicatedFiles) {
+        let dedicatedFile = server.globalDedicatedFiles[x];
+        if (files.has(path.join(joinPaths(dedicatedFile.path), dedicatedFile.name))) {
+          let global = files.get(path.join(joinPaths(dedicatedFile.path), dedicatedFile.name));
+          let data;
+          if (global.merging && dedicatedFile.merging) {
+            data = mergeGlobalConfigFiles(global, dedicatedFile);
+          } else {
+            data = dedicatedFile.data;
+          }
+          let df = new DedicatedFile();
+          df.path = dedicatedFile.path;
+          df.name = dedicatedFile.name;
+          df.data = data;
+          df.merging = dedicatedFile.merging;
+        }
+        files.set(path.join(joinPaths(dedicatedFile.path), dedicatedFile.name), dedicatedFile);
+      }
+      let filesArray = Array.from(files, ([name, value]) => (value));
+      s.sendMessage({type: m.type, id: m.id, found: true, files: filesArray});
+    } else if (m.type == "removeGlobalConfigFile") {
+      if (!servers.has(m.serverId)) return;
+      let server = servers.get(m.serverId);
+      server.globalDedicatedFiles = server.globalDedicatedFiles.filter(dedicatedFile => joinPaths(dedicatedFile.path) + dedicatedFile.name != joinPaths(m.path) + m.name);
+      fs.writeFileSync(path.join(serversFolder, server.filename), JSON.stringify(server, null, 4));
+      s.sendMessage({type: "updateGlobalConfigFile", id: server.id});
+    } else if (m.type == "updateGlobalConfigFile") {
+      if (!servers.has(m.serverId)) return;
+      let server = servers.get(m.serverId);
+      let index = server.globalDedicatedFiles.findIndex(dedicatedFile => joinPaths(dedicatedFile.path)+dedicatedFile.name ==  joinPaths(m.path)+m.name);
+      let dedicatedFile;
+      let global;
+      if (globalDedicatedFiles.has(path.join(joinPaths(m.path), m.name))) global = globalDedicatedFiles.get(path.join(joinPaths(m.path), m.name));
+      if (index == -1) {
+        dedicatedFile = new DedicatedFile();
+        dedicatedFile.path = m.path;
+        dedicatedFile.name = m.name;
+        dedicatedFile.merging = false;
+        dedicatedFile.data = m.data;
+        server.globalDedicatedFiles.push(dedicatedFile);
+      } else {
+        dedicatedFile = server.globalDedicatedFiles[index];
+        dedicatedFile.data = global != null && global.merging && dedicatedFile.merging ? mergeGlobalConfigFiles(global, {path: dedicatedFile.path, merging: dedicatedFile.merging, data: m.data}) : m.data;
+      }
+      // Check if the file is the same as the global file
+      if (global != null && global.data == null) global.data = fs.readFileSync(path.join(globalDedicatedFilesFolder, joinPaths(global.path), global.name), {encoding: "base64"});
+      if (global != null && global.data == dedicatedFile.data) {
+        server.globalDedicatedFiles = server.globalDedicatedFiles.filter(dedicatedFile => joinPaths(dedicatedFile.path) + dedicatedFile.name != joinPaths(m.path) + m.name);
+        fs.writeFileSync(path.join(serversFolder, server.filename), JSON.stringify(server, null, 4));
+        s.sendMessage({type: m.type, id: server.id});
+        return;
+      }
+      fs.writeFileSync(path.join(serversFolder, server.filename), JSON.stringify(server, null, 4));
+      s.sendMessage({type: m.type, id: server.id});
     }
   }
 }
@@ -644,15 +775,15 @@ function onMessage (m, s) {
  * @returns {string} Base64 encoded data
  */
 function mergePluginFiles (global, overwrite) {
-  if (!mergingSupported.includes(path.parse(global.path).ext)) throw "Attempted to merge unsupported file type: " + path.parse(global.path).ext;
-  if (global.data == null) global.data = fs.readFileSync(path.join(pluginConfigsFolder, global.path), {encoding: "base64"});
-  if (path.parse(global.path).ext == ".json") {
+  if (!mergingSupported.includes(path.parse(global.name).ext)) throw "Attempted to merge unsupported file type: " + path.parse(global.name).ext;
+  if (global.data == null) global.data = fs.readFileSync(path.join(pluginConfigsFolder, joinPaths(global.path), global.name), {encoding: "base64"});
+  if (path.parse(global.name).ext == ".json") {
     try {
       return Buffer.from(JSON.stringify(mergeJSON(JSON.parse(Buffer.from(global.data, "base64").toString()), JSON.parse(Buffer.from(overwrite.data, "base64").toString())))).toString("base64");
     } catch (e) {
       console.log("Error merging JSON files: " + e);
     }
-  } else if (path.parse(global.path).ext == ".yml" || path.parse(global.path).ext == ".yaml") {
+  } else if (path.parse(global.name).ext == ".yml" || path.parse(global.name).ext == ".yaml") {
     try {
       let globalYAML = yaml.load(Buffer.from(global.data, "base64").toString(), {schema: yaml.JSON_SCHEMA, json: true});
       let overwriteYAML = yaml.load(Buffer.from(overwrite.data, "base64").toString(), {schema: yaml.JSON_SCHEMA, json: true});
@@ -661,7 +792,7 @@ function mergePluginFiles (global, overwrite) {
     } catch (e) {
       console.log("Error merging YAML files: " + e);
     }
-  } else if (path.parse(global.path).ext == ".txt") {
+  } else if (path.parse(global.name).ext == ".txt") {
     try {
       let globalTXT = parseTxtToObject(Buffer.from(global.data, "base64").toString());
       let overwriteTXT = parseTxtToObject(Buffer.from(overwrite.data, "base64").toString());
@@ -680,15 +811,15 @@ function mergePluginFiles (global, overwrite) {
  * @returns {string} Base64 encoded data
  */
 function mergeConfigFiles (global, overwrite) {
-  if (!mergingSupported.includes(path.parse(global.path).ext)) throw "Attempted to merge unsupported file type: " + path.parse(global.path).ext;
-  if (global.data == null) global.data = fs.readFileSync(path.join(dedicatedFilesFolder, global.path), {encoding: "base64"});
-  if (path.parse(global.path).ext == ".json") {
+  if (!mergingSupported.includes(path.parse(global.name).ext)) throw "Attempted to merge unsupported file type: " + path.parse(global.name).ext;
+  if (global.data == null) global.data = fs.readFileSync(path.join(dedicatedFilesFolder, joinPaths(global.path), global.name), {encoding: "base64"});
+  if (path.parse(global.name).ext == ".json") {
     try {
       return Buffer.from(JSON.stringify(mergeJSON(JSON.parse(Buffer.from(global.data, "base64").toString()), JSON.parse(Buffer.from(overwrite.data, "base64").toString())))).toString("base64");
     } catch (e) {
       console.log("Error merging JSON files: " + e);
     }
-  } else if (path.parse(global.path).ext == ".yml" || path.parse(global.path).ext == ".yaml") {
+  } else if (path.parse(global.name).ext == ".yml" || path.parse(global.name).ext == ".yaml") {
     try {
       let globalYAML = yaml.load(Buffer.from(global.data, "base64").toString(), {schema: yaml.JSON_SCHEMA, json: true});
       let overwriteYAML = yaml.load(Buffer.from(overwrite.data, "base64").toString(), {schema: yaml.JSON_SCHEMA, json: true});
@@ -697,7 +828,43 @@ function mergeConfigFiles (global, overwrite) {
     } catch (e) {
       console.log("Error merging YAML files: " + e);
     }
-  } else if (path.parse(global.path).ext == ".txt") {
+  } else if (path.parse(global.name).ext == ".txt") {
+    try {
+      let globalTXT = parseTxtToObject(Buffer.from(global.data, "base64").toString());
+      let overwriteTXT = parseTxtToObject(Buffer.from(overwrite.data, "base64").toString());
+      let newData = new Buffer.from(objectToText(mergeJSON(globalTXT, overwriteTXT))).toString("base64");
+      return newData;
+    } catch (e) {
+      console.log("Error merging txt files: " + e);
+    }
+  }
+}
+
+/**
+ * 
+ * @param {DedicatedFile} global 
+ * @param {DedicatedFile} overwrite 
+ * @returns {string} Base64 encoded data
+ */
+function mergeGlobalConfigFiles (global, overwrite) {
+  if (!mergingSupported.includes(path.parse(global.name).ext)) throw "Attempted to merge unsupported file type: " + path.parse(global.name).ext;
+  if (global.data == null) global.data = fs.readFileSync(path.join(globalDedicatedFilesFolder, joinPaths(global.path), global.name), {encoding: "base64"});
+  if (path.parse(global.name).ext == ".json") {
+    try {
+      return Buffer.from(JSON.stringify(mergeJSON(JSON.parse(Buffer.from(global.data, "base64").toString()), JSON.parse(Buffer.from(overwrite.data, "base64").toString())))).toString("base64");
+    } catch (e) {
+      console.log("Error merging JSON files: " + e);
+    }
+  } else if (path.parse(global.name).ext == ".yml" || path.parse(global.name).ext == ".yaml") {
+    try {
+      let globalYAML = yaml.load(Buffer.from(global.data, "base64").toString(), {schema: yaml.JSON_SCHEMA, json: true});
+      let overwriteYAML = yaml.load(Buffer.from(overwrite.data, "base64").toString(), {schema: yaml.JSON_SCHEMA, json: true});
+      let newData = mergeJSON(globalYAML, overwriteYAML);
+      return Buffer.from(yaml.dump(newData)).toString("base64");
+    } catch (e) {
+      console.log("Error merging YAML files: " + e);
+    }
+  } else if (path.parse(global.name).ext == ".txt") {
     try {
       let globalTXT = parseTxtToObject(Buffer.from(global.data, "base64").toString());
       let overwriteTXT = parseTxtToObject(Buffer.from(overwrite.data, "base64").toString());
@@ -870,7 +1037,13 @@ async function loadPlugins () {
       let plugin = new Plugin();
       plugin.name = resolve.name;
       plugin.assemblymd5 = await getMD5(filePath);
-      let info = vi(filePath);
+      let info; 
+      try {
+        info = vi(filePath); 
+      } catch (e) {
+        console.log("Error reading plugin info: " + e);
+        continue;
+      }
       plugin.author = info.CompanyName || "Unknown Author";
       plugin.label = info.ProductName || filename.replace(".dll", "");
       plugin.version = info["Assembly Version"] || info.ProductVersion || info.FileVersion || "Unknown Version";
@@ -973,8 +1146,26 @@ async function loadDedicatedFiles () {
     let pfile = new DedicatedFile(filePath, mergingSupported.includes(path.parse(file.filename).ext));
     dedicatedFiles.set(filePath, pfile);
   }
-  console.log("Loaded " + dedicatedFiles.size + " global config files");
+  console.log("Loaded " + dedicatedFiles.size + " config files");
 
+}
+
+async function loadGlobalDedicatedFiles () {
+  globalDedicatedFiles.clear();
+  let files;
+  try {
+    files = readFolder(globalDedicatedFilesFolder);
+  } catch (e) {
+    console.log(e);
+    return;
+  }
+  for (i in files) {
+    let file = files[i];
+    let filePath = path.join(joinPaths(file.p), file.filename);
+    let pfile = new DedicatedFile(filePath, mergingSupported.includes(path.parse(file.filename).ext));
+    globalDedicatedFiles.set(filePath, pfile);
+  }
+  console.log("Loaded " + globalDedicatedFiles.size + " global config files");
 }
 
 async function loadServers () {
@@ -1020,13 +1211,29 @@ function loadServerConfig (obj) {
   config.betaPassword = obj.betaPassword;
   config.installArguments = obj.installArguments;
   config.autoStart = obj.autoStart;
+  config.dailyRestarts = obj.dailyRestarts || false;
+  config.restartTime = obj.restartTime;
   for (i in obj.dedicatedFiles) {
     let data = obj.dedicatedFiles[i];
     if (typeof(data.data) != "string") throw "Invalid dedicated file data";
-    if (typeof(data.path) != "string") throw "Invalid dedicated file path";
+    if (!Array.isArray(data.path)) throw "Invalid dedicated file path";
+    if (typeof(data.name) != "string") throw "Invalid dedicated file name";
     if (typeof(data.merging) != "boolean") throw "Invalid dedicated file merging";
-    let file = new DedicatedFile(data.path, data.merging, data.data);
+    let file = new DedicatedFile("", data.merging, data.data);
+    file.path = data.path;
+    file.name = data.name;
     config.dedicatedFiles.push(file);
+  }
+  for (i in obj.globalDedicatedFiles) {
+    let data = obj.globalDedicatedFiles[i];
+    if (typeof(data.data) != "string") throw "Invalid global dedicated file data";
+    if (!Array.isArray(data.path)) throw "Invalid global dedicated file path";
+    if (typeof(data.name) != "string") throw "Invalid global dedicated file name";
+    if (typeof(data.merging) != "boolean") throw "Invalid global dedicated file merging";
+    let file = new DedicatedFile("", data.merging, data.data);
+    file.path = data.path;
+    file.name = data.name;
+    config.globalDedicatedFiles.push(file);
   }
   for (i in obj.plugins) {
     let plugin = obj.plugins[i];
@@ -1042,10 +1249,13 @@ function loadServerConfig (obj) {
   }
   for (i in obj.pluginFiles) {
     let data = obj.pluginFiles[i];
-    if (typeof(data.data) != "string") throw "Invalid dedicated file data";
-    if (typeof(data.path) != "string") throw "Invalid dedicated file path";
-    if (typeof(data.merging) != "boolean") throw "Invalid dedicated file merging";
-    let file = new PluginFile(data.path, data.merging, data.data);
+    if (typeof(data.data) != "string") throw "Invalid plugin file data";
+    if (!Array.isArray(data.path)) throw "Invalid plugin file path";
+    if (typeof(data.name) != "string") throw "Invalid plugin file name";
+    if (typeof(data.merging) != "boolean") throw "Invalid plugin file merging";
+    let file = new PluginFile("", data.merging, data.data);
+    file.path = data.path;
+    file.name = data.name;
     config.pluginFiles.push(file);
   }
   return config;
@@ -1058,6 +1268,7 @@ async function start () {
   await loadCustomAssemblies();
   await loadDedicatedFiles();
   await readGlobalPluginConfigs();
+  await loadGlobalDedicatedFiles();
   await loaddependencies();
   await loadServers();
   server.listen(5555, '0.0.0.0');

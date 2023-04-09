@@ -28,6 +28,18 @@ class messageType {
         this.messageHandler = messageHandler;
         this.exports = messageHandler.exports;
     }
+
+    log(arg, obj, meta) {
+        this.vega.logger.log(arg, Object.assign(obj, {messageType: "vega-"+this.constructor.name}), meta);
+      }
+    
+      error(arg, obj, meta) {
+        this.vega.logger.error(arg, Object.assign(obj, {messageType: "vega-"+this.constructor.name}), meta);
+      }
+    
+      verbose(arg, obj, meta) {
+        this.vega.logger.verbose(arg, Object.assign(obj, {messageType: "vega-"+this.constructor.name}), meta);
+      }
 }
 
 class auth extends messageType {
@@ -123,13 +135,13 @@ class servers extends messageType {
             server.config = this.data[i];
             this.main.ServerManager.servers.set(this.data[i].id, server);
             try {
-                if (!server.installed && false) await server.install();
+                if (!server.installed) await server.install();
                 else await server.configure();
                 if (!fs.existsSync(server.serverContainer)) fs.mkdirSync(server.serverContainer, {recursive: true});
                 fs.writeFileSync(path.join(server.serverContainer, "config.json"), JSON.stringify(this.data[i], null, 4));
                 fs.writeFileSync(path.join(server.serverContainer, server.config.label + ".txt"), "This file is only here to help identify the server's label in the file system for a user. It is not used by the server or NVLA in any way.");
             } catch (e) {
-                this.vega.error("Failed to install server: {e} ", {messageType: this.constructor.name, e: e.code || e.message, stack: e.stack});
+                this.error("Failed to install server: {e} ", {e: e != null ? e.code || e.message : e, stack: e.stack});
                 server.error = e;
             }
         }
@@ -251,7 +263,7 @@ class pluginConfigurationRequest extends messageType {
      * @param obj {object} */
         constructor(main, obj) {
         super(main, obj);
-        if (obj.id == null || obj.id == undefined) throw "type 'fileRequest' requires 'id'";
+        if (obj.id == null || obj.id == undefined) throw "type 'pluginConfigurationRequest' requires 'id'";
         this.id = obj.id;
         this.e = obj.e;
         this.files = obj.files;
@@ -431,24 +443,20 @@ class updateConfig extends messageType {
      async execute(s) {
         if (this.id != null) {
             if (this.main.ServerManager.servers.has(this.id)) {
-                let server = this.main.ServerManager.servers.get(this.id);
-                await server.stopWatchers();      
+                let server = this.main.ServerManager.servers.get(this.id);  
                 try {
                     await server.getDedicatedServerConfigFiles();
                 } catch (e) {
-                    this.main.log.bind(this)("Failed to update config files for server " + this.id);
+                    this.error("Failed to update config files for server {serverId}", {serverId: this.id});
                 }
-                await server.setupWatchers();
             }
         } else {
             this.main.ServerManager.servers.forEach(async function (server, id) {
-                await server.stopWatchers();
                 try {
                     await server.getDedicatedServerConfigFiles();
                 } catch (e) {
-                    this.main.log.bind(this)("Failed to update config files for server " + id);
+                    this.error("Failed to update config files for server {serverId}", {serverId: id});
                 }
-                await server.setupWatchers();
             }.bind(this));
         }
     }
@@ -476,7 +484,7 @@ class updatePluginsConfig extends messageType {
                 try {
                     await server.getPluginConfigFiles();
                 } catch (e) {
-                    this.main.log.bind(this)("Failed to update plugin config files for server " + this.id);
+                    this.error("Failed to update plugin config files for server {serverId}", {serverId: this.id});
                 }
             }
         } else {
@@ -484,7 +492,7 @@ class updatePluginsConfig extends messageType {
                 try {
                     await server.getPluginConfigFiles();
                 } catch (e) {
-                    this.main.log.bind(this)("Failed to update plugin config files for server " + id);
+                    this.error("Failed to update plugin config files for server {serverId}", {serverId: id});
                 }
             }.bind(this));
         }
@@ -513,7 +521,7 @@ class updatePlugin extends messageType {
     /** 
      * @param {import("./socket")["Client"]["prototype"]} s */
      async execute(s) {
-        this.main.log.bind(this)("Updating plugin " + this.name);
+        this.log("Updating plugin {name}", {name: this.name});
         this.main.ServerManager.servers.forEach(
             /**
              * @param {import("./classes")["Server"]["prototype"]} server
@@ -526,7 +534,7 @@ class updatePlugin extends messageType {
                     if (server.process != null) server.updatePending = true;
                 }
             } catch (e) {
-                this.main.log.bind(this)("Failed to update plugin " + this.name + " for server " + id, e);
+                this.error("Failed to update plugin {name} for server {serverId} {e}", {name: this.name, serverId: id, e: e != null ? e.code || e.message : e, stack: e != null ? e.stack : e});
             }
         }.bind(this));
     }
@@ -549,7 +557,7 @@ class deletePlugin extends messageType {
     /** 
      * @param {import("./socket")["Client"]["prototype"]} s */
      async execute(s) {
-        this.main.log.bind(this)("Deleting plugin " + this.name);
+        this.log("Deleting plugin {name}", {name: this.name});
         this.main.ServerManager.servers.forEach(
             /**
              * @param {import("./classes")["Server"]["prototype"]} server
@@ -564,7 +572,7 @@ class deletePlugin extends messageType {
                     if (server.process != null) server.updatePending = true;
                 }
             } catch (e) {
-                this.main.log.bind(this)("Failed to delete plugin " + this.name + " for server " + id, e);
+                this.error("Failed to delete plugin {name} for server {serverId} {e}", {name: this.name, serverId: id, e: e != null ? e.code || e.message : e, stack: e != null ? e.stack : e});
             }
         }.bind(this));
     }
@@ -592,7 +600,7 @@ class updateDependency extends messageType {
     /** 
      * @param {import("./socket")["Client"]["prototype"]} s */
      async execute(s) {
-        this.main.log.bind(this)("Updating Dependency " + this.name);
+        this.log("Updating Dependency {name}", {name: this.name});
         this.main.ServerManager.servers.forEach(
             /**
              * @param {import("./classes")["Server"]["prototype"]} server
@@ -605,7 +613,7 @@ class updateDependency extends messageType {
                     if (server.process != null) server.updatePending = true;
                 }
             } catch (e) {
-                this.main.log.bind(this)("Failed to update Dependency " + this.name + " for server " + id, e);
+                this.error("Failed to update Dependency {name} for server {serverId} {e}", {name: this.name, serverId: id, e: e != null ? e.code || e.message : e, stack: e != null ? e.stack : e});
             }
         }.bind(this));
     }
@@ -628,7 +636,7 @@ class deleteDependency extends messageType {
     /** 
      * @param {import("./socket")["Client"]["prototype"]} s */
      async execute(s) {
-        this.main.log.bind(this)("Deleting Dependency " + this.name);
+        this.log("Deleting Dependency {name}", {name: this.name});
         this.main.ServerManager.servers.forEach(
             /**
              * @param {import("./classes")["Server"]["prototype"]} server
@@ -643,7 +651,7 @@ class deleteDependency extends messageType {
                     if (server.process != null) server.updatePending = true;
                 }
             } catch (e) {
-                this.main.log.bind(this)("Failed to delete Dependency " + this.name + " for server " + id, e);
+                this.error("Failed to delete Dependency {name} for server {serverId} {e}", {name: this.name, serverId: id, e: e != null ? e.code || e.message : e, stack: e != null ? e.stack : e});
             }
         }.bind(this));
     }
@@ -671,7 +679,7 @@ class updateCustomAssembly extends messageType {
     /** 
      * @param {import("./socket")["Client"]["prototype"]} s */
      async execute(s) {
-        this.main.log.bind(this)("Updating Custom Assembly " + this.name);
+        this.log("Updating Custom Assembly {name}", {name: this.name});
         this.main.ServerManager.servers.forEach(
             /**
              * @param {import("./classes")["Server"]["prototype"]} server
@@ -684,7 +692,7 @@ class updateCustomAssembly extends messageType {
                     if (server.process != null) server.updatePending = true;
                 }
             } catch (e) {
-                this.main.log.bind(this)("Failed to update Custom Assembly " + this.name + " for server " + id, e);
+                this.error("Failed to update Custom Assembly {name} for server {serverId} {e}", {name: this.name, serverId: id, e: e != null ? e.code || e.message : e, stack: e != null ? e.stack : e});
             }
         }.bind(this));
     }
@@ -707,7 +715,7 @@ class deleteCustomAssembly extends messageType {
     /** 
      * @param {import("./socket")["Client"]["prototype"]} s */
      async execute(s) {
-        this.main.log.bind(this)("Deleting Custom Assembly " + this.name);
+        this.log("Deleting Custom Assembly {name}", {name: this.name});
         this.main.ServerManager.servers.forEach(
             /**
              * @param {import("./classes")["Server"]["prototype"]} server
@@ -721,13 +729,87 @@ class deleteCustomAssembly extends messageType {
                     if (server.process != null) server.updatePending = true;
                 }
             } catch (e) {
-                this.main.log.bind(this)("Failed to delete Custom Assembly " + this.name + " for server " + id, e);
+                this.error("Failed to delete Custom Assembly {name} for server {serverId} {e}", {name: this.name, serverId: id, e: e != null ? e.code || e.message : e, stack: e != null ? e.stack : e});
             }
         }.bind(this));
     }
 }
 classes.set(deleteCustomAssembly.name, deleteCustomAssembly);
 
+class globalDedicatedServerConfigurationRequest extends messageType {
+    /** @type {string} */
+    id;
+
+    /** Error codes thrown if any
+     *  @type {string} */
+    e;
+
+    /** File objects
+     * @type {Array<import("./classes")["File"]["prototype"]}>} */
+    files;
+
+    /**
+     * @param main {messageHandler}
+     * @param obj {object} */
+        constructor(main, obj) {
+        super(main, obj);
+        if (obj.id == null || obj.id == undefined) throw "type 'fileRequest' requires 'id'";
+        this.id = obj.id;
+        this.e = obj.e;
+        this.files = obj.files;
+    }
+
+    /** 
+     * @param {import("./socket")["Client"]["prototype"]} s */
+    async execute(s) {
+        if (this.vega.fileRequests.has(this.id)) {
+            let request = this.vega.fileRequests.get(this.id);
+            if (this.e) return request.reject(this.e);
+            request.resolve(this.files);
+            this.vega.fileRequests.delete(this.id);
+        }
+    }
+}
+classes.set(globalDedicatedServerConfigurationRequest.name, globalDedicatedServerConfigurationRequest);
+
+class updateGlobalConfigFile extends messageType {
+    /** @type {string} Server id if specific*/
+    id;
+
+    /**
+     * @param main {messageHandler}
+     * @param obj {object} */
+    constructor(main, obj) {
+        super(main, obj);
+        this.id = obj.id;
+    }
+
+    /** 
+     * @param {import("./socket")["Client"]["prototype"]} s */
+     async execute(s) {
+        if (this.id != null) {
+            if (this.main.ServerManager.servers.has(this.id)) {
+                let server = this.main.ServerManager.servers.get(this.id);
+                try {
+                    await server.getGlobalDedicatedServerConfigFiles();
+                } catch (e) {
+                    this.error("Failed to update global config files for server {serverId}", {serverId: this.id});
+                }
+                await server.setupWatchers();
+            }
+        } else {
+            this.main.ServerManager.servers.forEach(async function (server, id) {
+                try {
+                    await server.getGlobalDedicatedServerConfigFiles();
+                } catch (e) {
+                    this.error("Failed to update global config files for server {serverId}", {serverId: id});
+                }
+                await server.setupWatchers();
+            }.bind(this));
+        }
+    }
+}
+classes.set(updateGlobalConfigFile.name, updateGlobalConfigFile);
 
 class messageHandler {
     /** @type {import("./classes")["NVLA"]["prototype"]} */

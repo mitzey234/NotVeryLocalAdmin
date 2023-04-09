@@ -2,10 +2,14 @@
     "filename": "server1.json",
     "label": "Server-1",
     "id": "h984g37u",
-    "dedicatedFiles": [
+    "dedicatedFiles": [],
+    "globalDedicatedFiles": [
         {
-            "path": "test.txt",
-            "merging": true,
+            "path": [
+                ""
+            ],
+            "name": "UserIdBans.txt",
+            "merging": false,
             "data": ""
         }
     ],
@@ -15,12 +19,29 @@
     "customAssemblies": [],
     "dependencies": [
         "NVorbis",
-        "SCPSLAudioApi"
+        "SCPSLAudioApi",
+        "TcpSL",
+        "Newtonsoft.Json",
+        "0Harmony"
     ],
-    "pluginFiles": [],
-    "port": 7790,
+    "pluginFiles": [
+        {
+            "path": [
+                "Bright Plugin"
+            ],
+            "name": ".ignore",
+            "merging": false,
+            "data": "bW90ZA=="
+        }
+    ],
+    "port": 7777,
     "verkey": null,
     "assignedMachine": "ouv0jl4j5aj",
     "installArguments": [],
-    "autoStart": true
+    "autoStart": true,
+    "dailyRestarts": true,
+    "restartTime": {
+        "hour": 2,
+        "minute": 47
+    }
 }

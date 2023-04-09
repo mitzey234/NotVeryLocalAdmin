@@ -31,4 +31,7 @@ vegaExample/dependencies/**
 vegaExample/pluginConfig/*
 vegaExample/pluginConfig/**
 
+vegaExample/serverConfig/*
+vegaExample/serverConfig/**
+
 /servers

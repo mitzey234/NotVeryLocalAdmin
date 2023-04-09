@@ -1,2 +1,5 @@
-rename globalConfig to dedicatedConfig
-create globalConfig for serverId\scpsl\AppData\config\global for syncing
+setup a system for not trying to update files that don't need to be updated
+
+when NVLA is stopping you should try to setup a way to inturupt things in progress like server installs or configuration
+
+setup update system for NVLA
