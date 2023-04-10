@@ -34,4 +34,7 @@ vegaExample/pluginConfig/**
 vegaExample/serverConfig/*
 vegaExample/serverConfig/**
 
+NVLAMonitorPlugin/NVLAMonitorPlugin/bin/
+
+
 /servers
