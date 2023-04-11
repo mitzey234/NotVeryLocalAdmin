@@ -6,9 +6,6 @@ const vi = require('win-version-info')
 const yaml = require('js-yaml');
 const chokidar = require('chokidar');
 
-var sockets = {};
-var count = 0;
-
 const pluginsFolder = path.join(__dirname, "./plugins");
 const pluginConfigsFolder = path.join(__dirname, "./pluginConfig");
 const serversFolder = path.join(__dirname, "./servers");
@@ -25,10 +22,6 @@ if (!fs.existsSync(dedicatedFilesFolder)) fs.mkdirSync(dedicatedFilesFolder);
 if (!fs.existsSync(dependenciesFolder)) fs.mkdirSync(dependenciesFolder);
 
 const password = "12345";
-
-//Files to watch
-/** @type Filewatch[] */
-let files = [];
 
 /** @type Map<string,Plugin> */
 let plugins = new Map();
@@ -59,13 +52,45 @@ configFolderWatch.on('all', onConfigFileEvent);
 configFolderWatch.on('error', error => console.log(`Watcher error: ${error}`));
 
 async function onConfigFileEvent (event, filePath) {
-  filePath = path.relative(dedicatedFilesFolder, filePath);
-  if (event == "add" || event == "unlink") {
+  let basePath = dedicatedFilesFolder;
+  filePath = path.relative(basePath, filePath);
+  if (event == "unlink") {
     await loadDedicatedFiles();
-    sendAllMachines({type: "updateConfig", id: null});
-  } else if (event == "change") {
+    let p = path.parse(path.normalize(filePath)).dir.split(path.sep);
+    let name = path.parse(filePath).base;
+    servers.forEach(server => {
+      if (server.assignedMachine != null && machines.has(server.assignedMachine)) {
+        let machine = machines.get(server.assignedMachine);
+        let index = server.dedicatedFiles.findIndex(dedicatedFile => joinPaths(dedicatedFile.path)+dedicatedFile.name == joinPaths(p)+name);
+        if (index != -1) {
+          let dedicatedFile = server.dedicatedFiles[index];
+          machine.socket.sendMessage({type: "updateFile", id: server.id, fileType: "serverConfig", path: dedicatedFile.path, name: dedicatedFile.name, data: dedicatedFile.data});
+        } else {
+          machine.socket.sendMessage({type: "deleteFile", id: server.id, fileType: "serverConfig", path: p, name: name});
+        }
+      }
+    });
+  } else if (event == "change" || event == "add") {
     await loadDedicatedFiles();
-    sendAllMachines({type: "updateConfig", id: null});
+    let globalFile = dedicatedFiles.get(path.join(joinPaths(path.parse(path.normalize(filePath)).dir.split(path.sep)), path.parse(filePath).base));
+    if (globalFile == null) return;
+    globalFile.data = fs.readFileSync(path.join(basePath, filePath), {encoding: "base64"});
+    servers.forEach(server => {
+      if (server.assignedMachine != null && machines.has(server.assignedMachine)) {
+        let machine = machines.get(server.assignedMachine);
+        let index = server.dedicatedFiles.findIndex(dedicatedFile => joinPaths(dedicatedFile.path)+dedicatedFile.name == joinPaths(globalFile.path)+globalFile.name);
+        let data = globalFile.data;
+        if (index != -1) {
+          let dedicatedFile = server.dedicatedFiles[index];
+          data = globalFile.merging && dedicatedFile.merging ? mergeConfigFiles(globalFile, {path: dedicatedFile.path, merging: dedicatedFile.merging, data: dedicatedFile.data}) : dedicatedFile.data
+          if (globalFile.data == dedicatedFile.data) {
+            server.dedicatedFiles = server.dedicatedFiles.filter(dedicatedFile2 => joinPaths(dedicatedFile2.path) + dedicatedFile2.name != joinPaths(globalFile.path) + globalFile.name);
+            fs.writeFileSync(path.join(serversFolder, server.filename), JSON.stringify(server, null, 4));    
+          }
+        }
+        machine.socket.sendMessage({type: "updateFile", id: server.id, fileType: "serverConfig", path: globalFile.path, name: globalFile.name, data: data});
+      }
+    });
   }
   console.log("Config file event: " + event + " " + filePath);
 }
@@ -75,13 +100,45 @@ globalConfigFolderWatch.on('all', onGlobalConfigFileEvent);
 globalConfigFolderWatch.on('error', error => console.log(`Watcher error: ${error}`));
 
 async function onGlobalConfigFileEvent (event, filePath) {
+  let basePath = globalDedicatedFilesFolder;
   filePath = path.relative(globalDedicatedFilesFolder, filePath);
-  if (event == "add" || event == "unlink") {
+  if (event == "unlink") {
     await loadGlobalDedicatedFiles();
-    sendAllMachines({type: "updateGlobalConfig", id: null});
-  } else if (event == "change") {
+    let p = path.parse(path.normalize(filePath)).dir.split(path.sep);
+    let name = path.parse(filePath).base;
+    servers.forEach(server => {
+      if (server.assignedMachine != null && machines.has(server.assignedMachine)) {
+        let machine = machines.get(server.assignedMachine);
+        let index = server.globalDedicatedFiles.findIndex(dedicatedFile => joinPaths(dedicatedFile.path)+dedicatedFile.name == joinPaths(p)+name);
+        if (index != -1) {
+          let dedicatedFile = server.globalDedicatedFiles[index];
+          machine.socket.sendMessage({type: "updateFile", id: server.id, fileType: "globalConfig", path: dedicatedFile.path, name: dedicatedFile.name, data: dedicatedFile.data});
+        } else {
+          machine.socket.sendMessage({type: "deleteFile", id: server.id, fileType: "globalConfig", path: p, name: name});
+        }
+      }
+    });
+  } else if (event == "change" || event == "add") {
     await loadGlobalDedicatedFiles();
-    sendAllMachines({type: "updateGlobalConfig", id: null});
+    let globalFile = globalDedicatedFiles.get(path.join(joinPaths(path.parse(path.normalize(filePath)).dir.split(path.sep)), path.parse(filePath).base));
+    if (globalFile == null) return;
+    globalFile.data = fs.readFileSync(path.join(basePath, filePath), {encoding: "base64"});
+    servers.forEach(server => {
+      if (server.assignedMachine != null && machines.has(server.assignedMachine)) {
+        let machine = machines.get(server.assignedMachine);
+        let index = server.globalDedicatedFiles.findIndex(dedicatedFile => joinPaths(dedicatedFile.path)+dedicatedFile.name == joinPaths(globalFile.path)+globalFile.name);
+        let data = globalFile.data;
+        if (index != -1) {
+          let dedicatedFile = server.globalDedicatedFiles[index];
+          data = globalFile.merging && dedicatedFile.merging ? mergeGlobalConfigFiles(globalFile, {path: dedicatedFile.path, merging: dedicatedFile.merging, data: dedicatedFile.data}) : dedicatedFile.data
+          if (globalFile.data == dedicatedFile.data) {
+            server.globalDedicatedFiles = server.globalDedicatedFiles.filter(dedicatedFile2 => joinPaths(dedicatedFile2.path) + dedicatedFile2.name != joinPaths(globalFile.path) + globalFile.name);
+            fs.writeFileSync(path.join(serversFolder, server.filename), JSON.stringify(server, null, 4));    
+          }
+        }
+        machine.socket.sendMessage({type: "updateFile", id: server.id, fileType: "globalConfig", path: globalFile.path, name: globalFile.name, data: data});
+      }
+    });
   }
   console.log("Global Config file event: " + event + " " + filePath);
 }
@@ -91,13 +148,50 @@ pluginConfigFolderWatch.on('all', onPluginConfigFileEvent);
 pluginConfigFolderWatch.on('error', error => console.log(`Watcher error: ${error}`));
 
 async function onPluginConfigFileEvent (event, filePath) {
+  let basePath = pluginConfigsFolder;
   filePath = path.relative(pluginConfigsFolder, filePath);
-  if (event == "add" || event == "unlink") {
+  if (event == "unlink") {
     await readGlobalPluginConfigs();
-    sendAllMachines({type: "updatePluginsConfig", id: null});
-  } else if (event == "change") {
+    let p = path.parse(path.normalize(filePath)).dir.split(path.sep);
+    let name = path.parse(filePath).base;
+    servers.forEach(server => {
+      if (server.assignedMachine != null && machines.has(server.assignedMachine)) {
+        let machine = machines.get(server.assignedMachine);
+        let index = server.pluginFiles.findIndex(dedicatedFile => joinPaths(dedicatedFile.path)+dedicatedFile.name == joinPaths(p)+name);
+        if (index != -1) {
+          let dedicatedFile = server.pluginFiles[index];
+          machine.socket.sendMessage({type: "updateFile", id: server.id, fileType: "pluginConfig", path: dedicatedFile.path, name: dedicatedFile.name, data: dedicatedFile.data});
+        } else {
+          machine.socket.sendMessage({type: "deleteFile", id: server.id, fileType: "pluginConfig", path: p, name: name});
+        }
+      }
+    });
+  } else if (event == "change" || event == "add") {
     await readGlobalPluginConfigs();
-    sendAllMachines({type: "updatePluginsConfig", id: null});
+    let globalFile;
+    let index = pluginFiles.findIndex(pluginFile => joinPaths(pluginFile.path) + pluginFile.name == joinPaths(path.parse(path.normalize(filePath)).dir.split(path.sep)) + path.parse(filePath).base);
+    if (index != -1) globalFile = pluginFiles[index];
+    if (globalFile == null) {
+      console.log("Plugin config file not found: " + filePath);
+      return;
+    }
+    globalFile.data = fs.readFileSync(path.join(basePath, filePath), {encoding: "base64"});
+    servers.forEach(server => {
+      if (server.assignedMachine != null && machines.has(server.assignedMachine)) {
+        let machine = machines.get(server.assignedMachine);
+        let index = server.pluginFiles.findIndex(dedicatedFile => joinPaths(dedicatedFile.path)+dedicatedFile.name == joinPaths(globalFile.path)+globalFile.name);
+        let data = globalFile.data;
+        if (index != -1) {
+          let dedicatedFile = server.pluginFiles[index];
+          data = globalFile.merging && dedicatedFile.merging ? mergeGlobalConfigFiles(globalFile, {path: dedicatedFile.path, merging: dedicatedFile.merging, data: dedicatedFile.data}) : dedicatedFile.data
+          if (globalFile.data == dedicatedFile.data) {
+            server.pluginFiles = server.pluginFiles.filter(dedicatedFile2 => joinPaths(dedicatedFile2.path) + dedicatedFile2.name != joinPaths(globalFile.path) + globalFile.name);
+            fs.writeFileSync(path.join(serversFolder, server.filename), JSON.stringify(server, null, 4));    
+          }
+        }
+        machine.socket.sendMessage({type: "updateFile", id: server.id, fileType: "pluginConfig", path: globalFile.path, name: globalFile.name, data: data});
+      }
+    });
   }
   console.log("Config file event: " + event + " " + filePath);
 }
@@ -408,6 +502,18 @@ class serverConfig {
   /** @type restartTime */
   restartTime = new restartTime();
 
+  /** @type number */
+  maximumStartupTime = 60;
+
+  /** @type number */
+  maximumServerUnresponsiveTime = 60;
+
+  /** @type number */
+  maximumShutdownTime = 60;
+
+  /** @type number */
+  maximumRestartTime = 60;
+
   simplified () {
     let obj = {};
     obj.label = this.label;
@@ -424,6 +530,10 @@ class serverConfig {
     obj.autoStart = this.autoStart;
     obj.dailyRestarts = this.dailyRestarts;
     obj.restartTime = this.restartTime;
+    obj.maximumStartupTime = this.maximumStartupTime;
+    obj.maximumServerUnresponsiveTime = this.maximumServerUnresponsiveTime;
+    obj.maximumShutdownTime = this.maximumShutdownTime;
+    obj.maximumRestartTime = this.maximumRestartTime;
     return obj;
   }
 }
@@ -628,7 +738,12 @@ function onMessage (m, s) {
       let server = servers.get(m.serverId);
       server.dedicatedFiles = server.dedicatedFiles.filter(dedicatedFile => joinPaths(dedicatedFile.path) + dedicatedFile.name != joinPaths(m.path) + m.name);
       fs.writeFileSync(path.join(serversFolder, server.filename), JSON.stringify(server, null, 4));
-      s.sendMessage({type: "updateConfig", id: server.id});
+      let global;
+      if (dedicatedFiles.has(path.join(joinPaths(m.path), m.name))) global = dedicatedFiles.get(path.join(joinPaths(m.path), m.name));
+      if (global != null) {
+        if (global.data == null) global.data = fs.readFileSync(path.join(dedicatedFilesFolder, joinPaths(global.path), global.name), {encoding: "base64"});
+        s.sendMessage({type: "updateFile", id: server.id, fileType: "serverConfig", path: global.path, name: global.name, data: global.data });
+      }
     } else if (m.type == "updateConfigFile") {
       if (!servers.has(m.serverId)) return;
       let server = servers.get(m.serverId);
@@ -652,17 +767,23 @@ function onMessage (m, s) {
       if (global != null && global.data == dedicatedFile.data) {
         server.dedicatedFiles = server.dedicatedFiles.filter(dedicatedFile => joinPaths(dedicatedFile.path) + dedicatedFile.name != joinPaths(m.path) + m.name);
         fs.writeFileSync(path.join(serversFolder, server.filename), JSON.stringify(server, null, 4));
-        s.sendMessage({type: "updateConfig", id: server.id});
+        s.sendMessage({type: "updateFile", id: server.id, fileType: "serverConfig", path: m.path, name: m.name, data: dedicatedFile.data });
         return;
       }
       fs.writeFileSync(path.join(serversFolder, server.filename), JSON.stringify(server, null, 4));
-      s.sendMessage({type: "updateConfig", id: server.id});
+      s.sendMessage({type: "updateFile", id: server.id, fileType: "serverConfig", path: m.path, name: m.name, data: dedicatedFile.data});
     } else if (m.type == "removePluginConfigFile") {
       if (!servers.has(m.serverId)) return;
       let server = servers.get(m.serverId);
       server.pluginFiles = server.pluginFiles.filter(pluginFile => joinPaths(pluginFile.path) + pluginFile.name != joinPaths(m.path) + m.name);
       fs.writeFileSync(path.join(serversFolder, server.filename), JSON.stringify(server, null, 4));
-      s.sendMessage({type: "updatePluginsConfig", id: server.id});
+      let global;
+      let index = pluginFiles.findIndex(pluginFile => joinPaths(pluginFile.path) + pluginFile.name == joinPaths(m.path) + m.name);
+      if (index != -1) global = pluginFiles[index];
+      if (global != null) {
+        if (global.data == null) global.data = fs.readFileSync(path.join(pluginConfigsFolder, joinPaths(global.path), global.name), {encoding: "base64"});
+        s.sendMessage({type: "updateFile", id: server.id, fileType: "pluginConfig", path: global.path, name: global.name, data: global.data });
+      }
     } else if (m.type == "updatePluginConfigFile") {
       if (!servers.has(m.serverId)) return;
       let server = servers.get(m.serverId);
@@ -687,11 +808,11 @@ function onMessage (m, s) {
       if (global != null && global.data == pluginFile.data) {
         server.pluginFiles = server.pluginFiles.filter(pluginFile => joinPaths(pluginFile.path)+pluginFile.name != joinPaths(m.path)+m.name);
         fs.writeFileSync(path.join(serversFolder, server.filename), JSON.stringify(server, null, 4));
-        s.sendMessage({type: "updatePluginsConfig", id: server.id});
+        s.sendMessage({type: "updateFile", id: server.id, fileType: "pluginConfig", path: m.path, name: m.name, data: m.data});
         return;
       }
       fs.writeFileSync(path.join(serversFolder, server.filename), JSON.stringify(server, null, 4));
-      s.sendMessage({type: "updatePluginsConfig", id: server.id});
+      s.sendMessage({type: "updateFile", id: server.id, fileType: "pluginConfig", path: m.path, name: m.name, data: m.data});
     } else if (m.type == "globalDedicatedServerConfigurationRequest") {
       if (!servers.has(m.serverId)) return s.sendMessage({type: m.type, id: m.id, e: "Server not found"});
       let server = servers.get(m.serverId);
@@ -735,7 +856,12 @@ function onMessage (m, s) {
       let server = servers.get(m.serverId);
       server.globalDedicatedFiles = server.globalDedicatedFiles.filter(dedicatedFile => joinPaths(dedicatedFile.path) + dedicatedFile.name != joinPaths(m.path) + m.name);
       fs.writeFileSync(path.join(serversFolder, server.filename), JSON.stringify(server, null, 4));
-      s.sendMessage({type: "updateGlobalConfigFile", id: server.id});
+      let global;
+      if (globalDedicatedFiles.has(path.join(joinPaths(m.path), m.name))) global = globalDedicatedFiles.get(path.join(joinPaths(m.path), m.name));
+      if (global != null) {
+        if (global.data == null) global.data = fs.readFileSync(path.join(globalDedicatedFilesFolder, joinPaths(global.path), global.name), {encoding: "base64"});
+        s.sendMessage({type: "updateFile", id: server.id, fileType: "globalConfig", path: global.path, name: global.name, data: global.data });
+      }
     } else if (m.type == "updateGlobalConfigFile") {
       if (!servers.has(m.serverId)) return;
       let server = servers.get(m.serverId);
@@ -759,11 +885,11 @@ function onMessage (m, s) {
       if (global != null && global.data == dedicatedFile.data) {
         server.globalDedicatedFiles = server.globalDedicatedFiles.filter(dedicatedFile => joinPaths(dedicatedFile.path) + dedicatedFile.name != joinPaths(m.path) + m.name);
         fs.writeFileSync(path.join(serversFolder, server.filename), JSON.stringify(server, null, 4));
-        s.sendMessage({type: m.type, id: server.id});
+        s.sendMessage({type: "updateFile", id: server.id, fileType: "globalConfig", path: m.path, name: m.name, data: m.data});
         return;
       }
       fs.writeFileSync(path.join(serversFolder, server.filename), JSON.stringify(server, null, 4));
-      s.sendMessage({type: m.type, id: server.id});
+      s.sendMessage({type: "updateFile", id: server.id, fileType: "globalConfig", path: m.path, name: m.name, data: m.data});
     }
   }
 }
@@ -1202,17 +1328,20 @@ async function loadServers () {
 function loadServerConfig (obj) {
   let config = new serverConfig();
   config.label = obj.label || config.id;
-  config.id = obj.id;
-  config.port = obj.port;
-  config.verkey = obj.verkey;
-  config.assignedMachine = obj.assignedMachine;
-  config.dedicatedFiles = [];
-  config.beta = obj.beta;
-  config.betaPassword = obj.betaPassword;
-  config.installArguments = obj.installArguments;
-  config.autoStart = obj.autoStart;
-  config.dailyRestarts = obj.dailyRestarts || false;
-  config.restartTime = obj.restartTime;
+  if (obj.id != null) config.id = obj.id;
+  if (obj.port != null) config.port = obj.port;
+  if (obj.verkey != null) config.verkey = obj.verkey;
+  if (obj.assignedMachine != null) config.assignedMachine = obj.assignedMachine;
+  if (obj.beta != null) config.beta = obj.beta;
+  if (obj.betaPassword != null) config.betaPassword = obj.betaPassword;
+  if (obj.installArguments != null) config.installArguments = obj.installArguments;
+  if (obj.autoStart != null) config.autoStart = obj.autoStart;
+  if (obj.dailyRestarts != null) config.dailyRestarts = obj.dailyRestarts;
+  if (obj.restartTime != null) config.restartTime = obj.restartTime;
+  if (obj.maximumStartupTime != null) config.maximumStartupTime = obj.maximumStartupTime;
+  if (obj.maximumServerUnresponsiveTime != null) config.maximumServerUnresponsiveTime = obj.maximumServerUnresponsiveTime;
+  if (obj.maximumShutdownTime != null) config.maximumShutdownTime = obj.maximumShutdownTime;
+  if (obj.maximumRestartTime != null) config.maximumRestartTime = obj.maximumRestartTime;
   for (i in obj.dedicatedFiles) {
     let data = obj.dedicatedFiles[i];
     if (typeof(data.data) != "string") throw "Invalid dedicated file data";

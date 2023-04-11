@@ -25,6 +25,8 @@
     "port": 7777,
     "verkey": null,
     "assignedMachine": "",
+    "beta": null,
+    "betaPassword": null,
     "installArguments": [
         "+@sSteamCmdForcePlatformType linux"
     ],
@@ -33,5 +35,9 @@
     "restartTime": {
         "hour": 0,
         "minute": 0
-    }
+    },
+    "maximumStartupTime": 60,
+    "maximumServerUnresponsiveTime": 60,
+    "maximumShutdownTime": 60,
+    "maximumRestartTime": 60
 }

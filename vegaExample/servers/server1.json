@@ -3,18 +3,10 @@
     "label": "Server-1",
     "id": "h984g37u",
     "dedicatedFiles": [],
-    "globalDedicatedFiles": [
-        {
-            "path": [
-                ""
-            ],
-            "name": "UserIdBans.txt",
-            "merging": false,
-            "data": ""
-        }
-    ],
+    "globalDedicatedFiles": [],
     "plugins": [
-        "BrightPlugin"
+        "BrightPlugin",
+        "NVLAMonitorPlugin"
     ],
     "customAssemblies": [],
     "dependencies": [
@@ -27,21 +19,27 @@
     "pluginFiles": [
         {
             "path": [
-                "Bright Plugin"
+                "NVLAMonitorPlugin"
             ],
-            "name": ".ignore",
+            "name": "config.yml",
             "merging": false,
-            "data": "bW90ZA=="
+            "data": "e30NCg=="
         }
     ],
     "port": 7777,
     "verkey": null,
     "assignedMachine": "ouv0jl4j5aj",
+    "beta": null,
+    "betaPassword": null,
     "installArguments": [],
     "autoStart": true,
     "dailyRestarts": true,
     "restartTime": {
         "hour": 2,
         "minute": 47
-    }
+    },
+    "maximumStartupTime": 60,
+    "maximumServerUnresponsiveTime": 60,
+    "maximumShutdownTime": 60,
+    "maximumRestartTime": 60
 }

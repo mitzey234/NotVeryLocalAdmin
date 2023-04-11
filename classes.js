@@ -118,6 +118,8 @@ function toInt32 (int) {
 function processPrintF(info, seq) {
 	let data = (info[Symbol.for("splat")] || [])[0] || [];
 	let metadata = (info[Symbol.for("splat")] || [])[1] || [];
+  if (info.message == null) info.message = "";
+  info.message = info.message.toString();
 	if (typeof data == "object" && !seq) for (i in data) if (i != "type") info.message = info.message.replaceAll("{" + i + "}", typeof data[i] != "string" && (data[i] != null && data[i].constructor != null ? data[i].constructor.name != "Error" : true) ? util.inspect(data[i], false, 7, false) : data[i].toString());
   if (metadata.color != null && seq) info.consoleColor = metadata.color;
 	if (metadata.color != null && colors[metadata.color] != null && !seq) info.message = colors[metadata.color](info.message);
@@ -173,10 +175,7 @@ function joinPaths(arr) {
 function getIgnores(folder) {
   if (fs.existsSync(path.join(folder, ".ignore"))) {
     try {
-      let data = fs
-        .readFileSync(path.join(folder, ".ignore"))
-        .toString()
-        .replaceAll("\r", "");
+      let data = fs.readFileSync(path.join(folder, ".ignore")).toString().replaceAll("\r", "");
       return data.split("\n");
     } catch (e) {
       console.log(".ignore error: ", { e: e, stack: e != null ? e.stack : e });
@@ -188,6 +187,7 @@ function getIgnores(folder) {
 }
 
 function isIgnored(root, file) {
+  if (root == file) return false;
   let filename = path.parse(file).base;
   let ignores = getIgnores(path.parse(file).dir);
   if (ignores.includes(filename)) return true;
@@ -252,6 +252,9 @@ class winstonLogger {
 
   errored = false;
 
+  /** @type {import('winston').transports.StreamTransportInstance} */
+  transport;
+
   constructor (main, settings) {
     this.main = main;
     this.settings = settings;
@@ -275,12 +278,32 @@ class winstonLogger {
     this.promise = new Promise(this.handlePromise.bind(this));
     this.timeout = setTimeout(this.reject.bind(this, "Fork timed out"), 10000);
     this.errored = false;
+    this.writableStream = new Stream.Writable();
+    this.writableStream._write = (chunk, encoding, next) => next();
+
+    this.transport = new winston.transports.Stream({
+      level: "verbose",
+      format: winston.format.printf(function (info) {
+        if (this.config.seq.enabled) {
+          processPrintF(info, true);
+          info.message = info.message.replace(ansiStripRegex, "");
+          if (this.alternative.process != null && !this.stopped) this.alternative.log(info);
+        }
+        return;
+      }.bind(this.main)),
+      stream: this.writableStream
+    });
+    this.transport
+    this.main.logger.add(this.transport);
     return this.promise;
   }
 
   stop () {
     if (this.process == null) return;
     this.stopping = true;
+    this.main.logger.remove(this.transport);
+    this.transport.destroy();
+    this.writableStream.destroy();
     this.process.kill();
   }
 
@@ -489,6 +512,18 @@ class ServerConfig {
   /** @type restartTime */
   restartTime = new restartTime();
 
+  /** @type number */
+  maximumStartupTime = 60;
+
+  /** @type number */
+  maximumServerUnresponsiveTime = 60;
+
+  /** @type number */
+  maximumShutdownTime = 60;
+
+  /** @type number */
+  maximumRestartTime = 60;
+
 }
 
 class restartTime {
@@ -509,6 +544,7 @@ class serverState {
   stopping = false;
   running = false;
   delayedRestart = false;
+  delayedStop = false;
 }
 
 class Server {
@@ -544,6 +580,8 @@ class Server {
 
   /** @type boolean */
   updatePending = false;
+
+  errorState = null;
 
   /** @type {import("child_process")["ChildProcess"]["prototype"]} */
   process;
@@ -597,6 +635,21 @@ class Server {
    * @type number */
   cpu;
 
+  /** @type boolean */
+  checkInProgress = false;
+
+  /** @type Function */
+  playerlistCallback;
+
+  playerlistTimeout;
+
+  monitorTimeout;
+
+  playerlistTimeoutCount = 0;
+
+  /** @type boolean */
+  idleMode = false;
+
   /**
    * @param {NVLA} main
    * @param {ServerConfig} config
@@ -615,12 +668,12 @@ class Server {
     this.serverCustomAssembliesFolder = path.join(this.serverInstallFolder, "SCPSL_Data", "Managed");
 
     try {
-      if (!fs.existsSync(this.pluginsFolderPath))
-        fs.mkdirSync(this.pluginsFolderPath, { recursive: true });
-      if (!fs.existsSync(this.serverConfigsFolder))
-        fs.mkdirSync(this.serverConfigsFolder, { recursive: true });
+      if (!fs.existsSync(this.pluginsFolderPath)) fs.mkdirSync(this.pluginsFolderPath, { recursive: true });
+      if (!fs.existsSync(this.serverConfigsFolder)) fs.mkdirSync(this.serverConfigsFolder, { recursive: true });
+      if (!fs.existsSync(this.globalDedicatedServerConfigFiles)) fs.mkdirSync(this.globalDedicatedServerConfigFiles, { recursive: true });
       this.setupWatchers();
     } catch (e) {
+      this.errorState = "Failed to create folders: " + e;
       this.main.error.bind(this)("Failed to create folders: " + e);
     }
   }
@@ -644,6 +697,11 @@ class Server {
     obj.type = this;
     obj.machineId = this.main.config.vega.id;
     this.logger.verbose(arg, obj, meta);
+  }
+
+  async clearError () {
+    this.errorState = null;
+    this.stateUpdate();
   }
 
   async setupWatchers() {
@@ -677,7 +735,12 @@ class Server {
   async onGlobalConfigFileEvent(event, filePath) {
     if (this.disableWatching) return;
     filePath = path.relative(this.globalDedicatedServerConfigFiles, filePath);
-    if (isIgnored(this.globalDedicatedServerConfigFiles, path.join(this.globalDedicatedServerConfigFiles, filePath))) return;
+    try {
+      if (isIgnored(this.globalDedicatedServerConfigFiles, path.join(this.globalDedicatedServerConfigFiles, filePath))) return;
+    } catch (e) {
+      this.error("Failed to check if file is ignored: {e}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
+      return;
+    }
     if (this.ignoreConfigFilePaths.includes(filePath)) return (this.ignoreConfigFilePaths = this.ignoreConfigFilePaths.filter((x) => x != filePath));
     if (event == "add" || event == "change") {
       let p = path.parse(path.normalize(filePath)).dir.split(path.sep);
@@ -688,14 +751,17 @@ class Server {
       let name = path.parse(filePath).base;
       this.main.vega.client.sendMessage(new mt.removeGlobalConfigFile(this.config.id, p, name));
     }
-    this.log("Global Config file event: {event} {filePath}", { event: event, filePath: filePath }, { color: 6 });
+    this.verbose("Global Config file event: {event} {filePath}", { event: event, filePath: filePath }, { color: 6 });
   }
 
   async onConfigFileEvent(event, filePath) {
     if (this.disableWatching) return;
     filePath = path.relative(this.serverConfigsFolder, filePath);
-    this.log("Config file event: {event} {filePath}", { event: event, filePath: filePath }, { color: 6 });
-    if (isIgnored(this.serverConfigsFolder, path.join(this.serverConfigsFolder, filePath))) return;
+    try {
+      if (isIgnored(this.serverConfigsFolder, path.join(this.serverConfigsFolder, filePath))) return;
+    } catch (e) {
+      this.error("Failed to check if file is ignored: {e}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
+    }
     if (this.ignoreConfigFilePaths.includes(filePath)) return (this.ignoreConfigFilePaths = this.ignoreConfigFilePaths.filter((x) => x != filePath));
     if (event == "add" || event == "change") {
       let p = path.parse(path.normalize(filePath)).dir.split(path.sep);
@@ -706,13 +772,17 @@ class Server {
       let name = path.parse(filePath).base;
       this.main.vega.client.sendMessage(new mt.removeConfigFile(this.config.id, p, name));
     }
-    this.log("Config file event: {event} {filePath}", { event: event, filePath: filePath }, { color: 6 });
+    this.verbose("Config file event: {event} {filePath}", { event: event, filePath: filePath }, { color: 6 });
   }
 
   async onPluginConfigFileEvent(event, filePath) {
     if (this.disableWatching) return;
     filePath = path.relative(this.pluginsFolderPath, filePath);
-    if (isIgnored(this.pluginsFolderPath,path.join(this.pluginsFolderPath, filePath))) return;
+    try {
+      if (isIgnored(this.pluginsFolderPath,path.join(this.pluginsFolderPath, filePath))) return;
+    } catch (e) {
+      this.error("Failed to check if file is ignored: {e}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
+    }
     if (filePath.startsWith("dependencies") || filePath.endsWith(".dll")) return;
     if (this.ignorePluginConfigFilePaths.includes(filePath)) return (this.ignorePluginConfigFilePaths = this.ignorePluginConfigFilePaths.filter((x) => x != filePath));
     if (event == "add" || event == "change") {
@@ -724,7 +794,7 @@ class Server {
       let name = path.parse(filePath).base;
       this.main.vega.client.sendMessage(new mt.removePluginConfigFile(this.config.id, p, name));
     }
-    this.log("Plugin config file event: {event} {filePath}",{ event: event, filePath: filePath },{ color: 6 });
+    this.verbose("Plugin config file event: {event} {filePath}", { event: event, filePath: filePath }, { color: 6 });
   }
 
   async getPluginConfigFiles() {
@@ -733,7 +803,8 @@ class Server {
     try {
       files = await this.main.vega.getPluginConfiguration(this.config.id);
     } catch (e) {
-      this.error("Failed to get plugin configs: {e}", {e: e != null ? e.code || e.message : e, stack: e != null ? e.stack : e});
+      this.errorState = "Failed to get plugin configs: " + e != null ? e.code || e.message || e : e;
+      return this.error("Failed to get plugin configs: {e}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
     }
     let usedFolders = ["dependencies"];
     for (var x in files) {
@@ -745,7 +816,8 @@ class Server {
       try {
         if (!fs.existsSync(path.parse(filePath).dir)) fs.mkdirSync(path.parse(filePath).dir, { recursive: true });
       } catch (e) {
-        this.error("Failed to create plugin config directory: {e}", {e: e != null ? e.code || e.message : e, stack: e != null ? e.stack : e});
+        this.errorState = "Failed to create plugin config directory: " + e != null ? e.code || e.message || e : e;
+        this.error("Failed to create plugin config directory: {e}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
         continue;
       }
       try {
@@ -753,7 +825,8 @@ class Server {
         this.ignorePluginConfigFilePaths.push(path.join(joinPaths(file.path), file.name));
         fs.writeFileSync(filePath, file.data, { encoding: "base64" });
       } catch (e) {
-        this.error("Failed to write plugin config file: {e}", {e: e != null ? e.code || e.message : e, stack: e != null ? e.stack : e});
+        this.errorState = "Failed to write plugin config file: " + e != null ? e.code || e.message || e : e;
+        this.error("Failed to write plugin config file: {e}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
         continue;
       }
     }
@@ -772,23 +845,33 @@ class Server {
         }
       }
       try {
-        if (!isIgnored(this.pluginsFolderPath, path.join(this.pluginsFolderPath, joinPaths(file.p) || "", file.filename)) && !safe && !path.join(joinPaths(file.p) || "", file.filename).startsWith("dependencies") && !(file.filename.endsWith(".dll") && path.parse(path.join(joinPaths(file.p) || "", file.filename)).dir == "")) {
-          this.log("Deleting: {path}", {path: path.join(joinPaths(file.p) || "", file.filename )});
-          this.ignoreFilePaths.push(path.join(joinPaths(file.p) || "", file.filename));
-          fs.rmSync(path.join(this.pluginsFolderPath, joinPaths(file.p) || "", file.filename), { recursive: true });
+        try {
+          if (!isIgnored(this.pluginsFolderPath, path.join(this.pluginsFolderPath, joinPaths(file.p) || "", file.filename)) && !safe && !path.join(joinPaths(file.p) || "", file.filename).startsWith("dependencies") && !(file.filename.endsWith(".dll") && path.parse(path.join(joinPaths(file.p) || "", file.filename)).dir == "")) {
+            this.log("Deleting: {path}", {path: path.join(joinPaths(file.p) || "", file.filename )});
+            this.ignoreFilePaths.push(path.join(joinPaths(file.p) || "", file.filename));
+            fs.rmSync(path.join(this.pluginsFolderPath, joinPaths(file.p) || "", file.filename), { recursive: true });
+          }
+        } catch (e) {
+          this.error("Failed to check if file is ignored: {e}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
         }
       } catch (e) {
-        this.main.error.bind(this)("Failed to delete unneeded plugin config file: {e}", {e: e != null ? e.code || e.message : e, stack: e != null ? e.stack : e});
+        this.errorState = "Failed to delete unneeded plugin config file: " + e != null ? e.code || e.message || e : e;
+        this.error("Failed to delete unneeded plugin config file: {e}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
         continue;
       }
     }
     for (i in folders) {
-      if (usedFolders.includes(path.join(path.normalize(joinPaths(folders[i].p)), folders[i].filename)) || isIgnored(this.pluginsFolderPath, path.join(this.pluginsFolderPath, joinPaths(folders[i].p) || "", folders[i].filename))) continue;
+      try {
+        if (usedFolders.includes(path.join(path.normalize(joinPaths(folders[i].p)), folders[i].filename)) || isIgnored(this.pluginsFolderPath, path.join(this.pluginsFolderPath, joinPaths(folders[i].p) || "", folders[i].filename))) continue;
+      } catch (e) {
+        this.error("Failed to check if file is ignored: {e}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
+      }
       this.log("Deleting: {path}", {path: path.join(joinPaths(folders[i].p) || "", folders[i].filename)});
       try {
         fs.rmSync(path.join(this.pluginsFolderPath, joinPaths(folders[i].p) || "", folders[i].filename), { recursive: true });
       } catch (e) {
-        this.error("Failed to delete unneeded plugin config folder: {e}", {e: e != null ? e.code || e.message : e, stack: e != null ? e.stack : e});
+        this.errorState = "Failed to delete unneeded plugin config folder: " + e != null ? e.code || e.message || e : e;
+        this.error("Failed to delete unneeded plugin config folder: {e}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
         continue;
       }
     }
@@ -804,7 +887,8 @@ class Server {
         pluginData = await this.main.vega.getPlugin(plugin);
         fs.writeFileSync(path.join(this.pluginsFolderPath, plugin + ".dll"), Buffer.from(pluginData.data, "base64"));
       } catch (e) {
-        this.error("Failed to get plugin '{plugin}': {e}", {plugin: plugin, e: e != null ? e.code || e.message : e, stack: e != null ? e.stack : e});
+        this.errorState = "Failed to get plugin: '"+plugin+"'" + e != null ? e.code || e.message || e : e;
+        this.error("Failed to get plugin '{plugin}': {e}", {plugin: plugin, e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
         continue;
       }
     }
@@ -816,7 +900,8 @@ class Server {
         try {
           fs.rmSync(path.join(this.pluginsFolderPath, file), {recursive: true});
         } catch (e) {
-          this.error("Failed to delete unneeded plugin: {e}", {e: e != null ? e.code || e.message : e, stack: e != null ? e.stack : e});
+          this.errorState = "Failed to delete unneeded plugin: " + e != null ? e.code || e.message || e : e;
+          this.error("Failed to delete unneeded plugin: {e}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
           continue;
         }
       }
@@ -833,7 +918,8 @@ class Server {
         customAssemblyData = await this.main.vega.getCustomAssembly(customAssembly);
         fs.writeFileSync(path.join(this.serverCustomAssembliesFolder, customAssembly + ".dll"), Buffer.from(customAssemblyData.data, "base64"));
       } catch (e) {
-        this.error("Failed to get custom assembly '{customAssembly}': {e}", {customAssembly: customAssembly, e: e != null ? e.code || e.message : e, stack: e != null ? e.stack : e});
+        this.errorState = "Failed to get custom assembly '"+customAssembly+"': " + e != null ? e.code || e.message || e : e;
+        this.error("Failed to get custom assembly '{customAssembly}': {e}", {customAssembly: customAssembly, e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
         continue;
       }
     }
@@ -845,7 +931,8 @@ class Server {
     try {
       if (!fs.existsSync(targetFolder)) fs.mkdirSync(targetFolder, { recursive: true });
     } catch (e) {
-      this.error("Failed to create dependencies folder: {e}", {e: e != null ? e.code || e.message : e, stack: e != null ? e.stack : e});
+      this.errorState = "Failed to create dependencies folder: " + e != null ? e.code || e.message || e : e;
+      this.error("Failed to create dependencies folder: {e}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
       return;
     }
     for (var i in this.config.dependencies) {
@@ -856,7 +943,8 @@ class Server {
         dependencyData = await this.main.vega.getDependency(dependency);
         fs.writeFileSync(path.join(targetFolder, dependency + ".dll"), Buffer.from(dependencyData.data, "base64"));
       } catch (e) {
-        this.error("Failed to get dependency '{dependency}': {e}", {dependency: dependency, e: e != null ? e.code || e.message : e, stack: e != null ? e.stack : e});
+        this.errorState = "Failed to get dependency '"+dependency+"': " + e != null ? e.code || e.message || e : e;
+        this.error("Failed to get dependency '{dependency}': {e}", {dependency: dependency, e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
         continue;
       }
     }
@@ -869,7 +957,8 @@ class Server {
     try {
       files = await this.main.vega.getDedicatedServerConfiguration(this.config.id);
     } catch (e) {
-      this.error("Failed to get plugin configs: {e}", {e: e != null ? e.code || e.message : e, stack: e != null ? e.stack : e});
+      this.errorState = "Failed to get plugin configs: " + e != null ? e.code || e.message || e : e;
+      return this.error("Failed to get plugin configs: {e}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
     }
     let usedFolders = [];
     for (var x in files) {
@@ -881,7 +970,8 @@ class Server {
       try {
         if (!fs.existsSync(path.parse(filePath).dir)) fs.mkdirSync(path.parse(filePath).dir, { recursive: true });
       } catch (e) {
-        this.error("Failed to create dedicated server config directory: {e}", {e: e != null ? e.code || e.message : e, stack: e != null ? e.stack : e});
+        this.errorState = "Failed to create dedicated server config directory: " + e != null ? e.code || e.message || e : e;
+        this.error("Failed to create dedicated server config directory: {e}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
         continue;
       }
       try {
@@ -889,7 +979,8 @@ class Server {
         this.ignoreConfigFilePaths.push(path.join(joinPaths(file.path), file.name));
         fs.writeFileSync(filePath, file.data, { encoding: "base64" });
       } catch (e) {
-        this.error("Failed to write dedicated server config file: {e}", {e: e != null ? e.code || e.message : e, stack: e != null ? e.stack : e});
+        this.errorState = "Failed to create dedicated server config directory: " + e != null ? e.code || e.message || e : e;
+        this.error("Failed to write dedicated server config file: {e}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
         continue;
       }
     }
@@ -914,7 +1005,8 @@ class Server {
           fs.rmSync(path.join(this.serverConfigsFolder, joinPaths(file.p) || "",file.filename), { recursive: true });
         }
       } catch (e) {
-        this.error("Failed to delete unneeded dedicated server config file: {e}", {e: e != null ? e.code || e.message : e, stack: e != null ? e.stack : e});
+        this.errorState = "Failed to delete unneeded dedicated server config file: " + e != null ? e.code || e.message || e : e;
+        this.error("Failed to delete unneeded dedicated server config file: {e}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
         continue;
       }
     }
@@ -924,7 +1016,8 @@ class Server {
       try {
         fs.rmSync(path.join(this.serverConfigsFolder, joinPaths(folders[i].p) || "", folders[i].filename), { recursive: true });
       } catch (e) {
-        this.error("Failed to delete unneeded dedicated server config folder: {e}", {e: e != null ? e.code || e.message : e, stack: e != null ? e.stack : e});
+        this.errorState = "Failed to delete unneeded dedicated server config folder: " + e != null ? e.code || e.message || e : e;
+        this.error("Failed to delete unneeded dedicated server config folder: {e}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
         continue;
       }
     }
@@ -937,7 +1030,7 @@ class Server {
     try {
       files = await this.main.vega.getGlobalDedicatedServerConfiguration(this.config.id);
     } catch (e) {
-      this.error("Failed to get global configs: {e}", {e: e != null ? e.code || e.message : e, stack: e != null ? e.stack : e});
+      return this.error("Failed to get global configs: {e}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
     }
     let usedFolders = [];
     for (var x in files) {
@@ -949,7 +1042,8 @@ class Server {
       try {
         if (!fs.existsSync(path.parse(filePath).dir)) fs.mkdirSync(path.parse(filePath).dir, { recursive: true });
       } catch (e) {
-        this.error("Failed to create global dedicated server config directory: {e}", {e: e != null ? e.code || e.message : e, stack: e != null ? e.stack : e});
+        this.errorState = "Failed to create global dedicated server config directory: " + e != null ? e.code || e.message || e : e;
+        this.error("Failed to create global dedicated server config directory: {e}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
         continue;
       }
       try {
@@ -957,7 +1051,8 @@ class Server {
         this.ignoreConfigFilePaths.push(path.join(joinPaths(file.path), file.name));
         fs.writeFileSync(filePath, file.data, { encoding: "base64" });
       } catch (e) {
-        this.error("Failed to write global dedicated server config file: {e}", {e: e != null ? e.code || e.message : e, stack: e != null ? e.stack : e});
+        this.errorState = "Failed to write global dedicated server config file: " + e != null ? e.code || e.message || e : e;
+        this.error("Failed to write global dedicated server config file: {e}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
         continue;
       }
     }
@@ -982,7 +1077,8 @@ class Server {
           fs.rmSync(path.join(this.globalDedicatedServerConfigFiles, joinPaths(file.p) || "",file.filename), { recursive: true });
         }
       } catch (e) {
-        this.error("Failed to delete unneeded global dedicated server config file: {e}", {e: e != null ? e.code || e.message : e, stack: e != null ? e.stack : e});
+        this.errorState = "Failed to delete unneeded global dedicated server config file: " + e != null ? e.code || e.message || e : e;
+        this.error("Failed to delete unneeded global dedicated server config file: {e}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
         continue;
       }
     }
@@ -992,7 +1088,8 @@ class Server {
       try {
         fs.rmSync(path.join(this.globalDedicatedServerConfigFiles, joinPaths(folders[i].p) || "", folders[i].filename), { recursive: true });
       } catch (e) {
-        this.error("Failed to delete unneeded global dedicated server config folder: {e}", {e: e != null ? e.code || e.message : e, stack: e != null ? e.stack : e});
+        this.errorState = "Failed to delete unneeded global dedicated server config folder: " + e != null ? e.code || e.message || e : e;
+        this.error("Failed to delete unneeded global dedicated server config folder: {e}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
         continue;
       }
     }
@@ -1006,37 +1103,43 @@ class Server {
     try {
       await this.getPluginConfigFiles();
     } catch (e) {
-      this.error("Failed to get plugin configs: {e}", { e: e != null ? e.code || e.message : e, stack: e != null ? e.stack : e });
+      this.errorState = "Failed to get plugin configs: " + e != null ? e.code || e.message || e : e;
+      this.error("Failed to get plugin configs: {e}", { e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e });
       return;
     }
     try {
       await this.getDependencies();
     } catch (e) {
-      this.error("Failed to get dependencies: {e}", { e: e != null ? e.code || e.message : e, stack: e != null ? e.stack : e });
+      this.errorState = "Failed to get dependencies: " + e != null ? e.code || e.message || e : e;
+      this.error("Failed to get dependencies: {e}", { e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e });
       return;
     }
     try {
       await this.getPlugins();
     } catch (e) {
-      this.error("Failed to get plugins: {e}", { e: e != null ? e.code || e.message : e, stack: e != null ? e.stack : e });
+      this.errorState = "Failed to get plugins: " + e != null ? e.code || e.message || e : e;
+      this.error("Failed to get plugins: {e}", { e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e });
       return;
     }
     try {
       await this.getCustomAssemblies();
     } catch (e) {
-      this.error("Failed to get custom assemblies: {e}", { e: e != null ? e.code || e.message : e, stack: e != null ? e.stack : e });
+      this.errorState = "Failed to get custom assemblies: " + e != null ? e.code || e.message || e : e;
+      this.error("Failed to get custom assemblies: {e}", { e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e });
       return;
     }
     try {
       await this.getDedicatedServerConfigFiles();
     } catch (e) {
-      this.error("Failed to get dedicated server configs: {e}", { e: e != null ? e.code || e.message : e, stack: e != null ? e.stack : e });
+      this.errorState = "Failed to get dedicated server configs: " + e != null ? e.code || e.message || e : e;
+      this.error("Failed to get dedicated server configs: {e}", { e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e });
       return;
     }
     try {
       await this.getGlobalDedicatedServerConfigFiles();
     } catch (e) {
-      this.error("Failed to get global dedicated server configs: {e}", { e: e != null ? e.code || e.message : e, stack: e != null ? e.stack : e });
+      this.errorState = "Failed to get global dedicated server configs: " + e != null ? e.code || e.message || e : e;
+      this.error("Failed to get global dedicated server configs: {e}", { e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e });
       return;
     }
     if (this.config.verkey != null && this.config.verkey.trim() != "") {
@@ -1053,7 +1156,8 @@ class Server {
         if (fs.existsSync(path.join(this.dedicatedServerAppdata, "verkey.txt")))
           fs.rmSync(path.join(this.dedicatedServerAppdata, "verkey.txt"));
       } catch (e) {
-        this.error("Failed to delete verkey.txt: {e}", { e: e != null ? e.code || e.message : e, stack: e != null ? e.stack : e });
+        this.errorState = "Failed to delete verkey.txt: " + e != null ? e.code || e.message || e : e;
+        this.error("Failed to delete verkey.txt: {e}", { e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e });
       }
     }
     fs.writeFileSync(path.join(this.serverInstallFolder, "hoster_policy.txt"), "gamedir_for_configs: true");
@@ -1069,18 +1173,13 @@ class Server {
     this.stateUpdate();
     this.log("Installing server {label}", {label: this.config.label});
     try {
-      let result = await this.main.steam.downloadApp(
-        "996560",
-        this.serverInstallFolder,
-        this.config.beta,
-        this.config.betaPassword,
-        this.config.installArguments
-      );
+      let result = await this.main.steam.downloadApp("996560", this.serverInstallFolder, this.config.beta,  this.config.betaPassword, this.config.installArguments);
       if (result != 0) throw "Failed to install server";
       this.log("Installed SCPSL", null, {color: 3});
       this.installed = true;
     } catch (e) {
-      this.error("Failed to install server: {e}", {e: e != null ? e.code || e.message : e, stack: e != null ? e.stack : e});
+      this.errorState = "Failed to install server: " + e != null ? e.code || e.message || e : e;
+      this.error("Failed to install server: {e}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
       return;
     }
     this.state.installing = false;
@@ -1106,24 +1205,20 @@ class Server {
     this.stateUpdate();
     this.log("Updating server {label}", {label: this.config.label});
     try {
-      let result = await this.main.steam.downloadApp(
-        "996560",
-        this.serverInstallFolder,
-        this.config.beta,
-        this.config.betaPassword,
-        this.config.installArguments
-      );
+      let result = await this.main.steam.downloadApp("996560", this.serverInstallFolder, this.config.beta, this.config.betaPassword, this.config.installArguments);
       if (result != 0) throw "Failed to update server";
       this.log("Updated SCPSL", null, {color: 3});
       if (this.process != null) this.updatePending = true;
     } catch (e) {
-      this.main.error.bind(this)("Failed to install server: " + e);
+      this.errorState = "Failed to update server: " + e != null ? e.code || e.message || e : e;
+      this.error("Failed to update server: ", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
       return;
     }
     try {
       await this.getCustomAssemblies();
     } catch (e) {
-      this.main.error.bind(this)("Failed to get custom assemblies:", e);
+      this.errorState = "Failed to update server: " + e != null ? e.code || e.message || e : e;
+      this.error("Failed to get custom assemblies: {e}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
       return;
     }
     this.state.updating = false;
@@ -1131,44 +1226,98 @@ class Server {
   }
 
   async updateCycle () {
-    if (this.config.dailyRestarts) {
-      if (new Date().getHours() != this.config.restartTime.hour || new Date().getMinutes() != this.config.restartTime.minute) return;
+    if (this.config.dailyRestarts && new Date().getHours() == this.config.restartTime.hour && new Date().getMinutes() == this.config.restartTime.minute) {
       let date = ((new Date().getMonth()) + "-" + (new Date().getDate()));
       if (this.lastRestart != date) {
         let value = await this.restart();
         if (value != null) {
           this.lastRestart = date;
           this.error("Failed to restart server, code:{e}", {e: value});
-          return;
+        } else {
+          this.log("Scheduled Restart in progress", null, {color: 6});
+          this.lastRestart = date;
+          this.restart();
         }
-        this.info("Scheduled Restart in progress", null, {color: 6});
-        this.lastRestart = date;
-        this.restart();
       }
     }
+    if (this.state.running && this.process != null && this.checkInProgress == false && this.nvlaMonitorInstalled == false) {
+      this.checkInProgress = true;
+      try {
+        await this.checkServer();
+      } catch (e) {
+        if (e == "Timeout") {
+          this.error("Failed to check server, server timed out " + this.playerlistTimeoutCount, null, {color: 4});
+          this.playerlistTimeoutCount++;
+          if (this.playerlistTimeoutCount >= this.config.maximumServerUnresponsiveTime/8 && !this.state.restarting) {
+            this.error("Server is unresponsive, restarting", null, {color: 4});
+            this.restart(true, true);
+          }
+        } else {
+          this.error("Failed to check server, code: {e}", {e: e});
+        }
+      }
+      this.playerlistCallback = null;
+      this.playerlistTimeout = null;
+      this.checkInProgress = false;
+    }
+  }
+
+  /**
+   * 
+   * @param {nvlaMonitorUpdate} data 
+   * @returns 
+   */
+  onMonitorUpdate (data) {
+    this.log("Monitor Update");
+    if (this.nvlaMonitorInstalled == false) {
+      this.nvlaMonitorInstalled = true;
+      this.log("NVLA Monitor detected", null, {color: 3});
+      if (this.playerlistTimeout != null) {
+        clearTimeout(this.playerlistTimeout);
+        this.playerlistTimeout = null;
+      }
+      if (this.playerlistCallback != null) {
+        this.playerlistCallback();
+        this.playerlistCallback = null;
+      }
+      this.checkInProgress = false;
+    }
+    this.players = data.players;
+    clearTimeout(this.monitorTimeout);
+    this.playerlistTimeoutCount = 0;
+    this.monitorTimeout = setTimeout(this.monitorUpdateTimeout.bind(this), this.idleMode ? 60000*5 : 8000);
+    return;
+  }
+
+  monitorUpdateTimeout () {
+    this.error("Failed to check server, NVLA Monitor timed out " + this.playerlistTimeoutCount, null, {color: 4});
+    this.playerlistTimeoutCount++;
+    if (this.playerlistTimeoutCount >= this.config.maximumServerUnresponsiveTime/8 && !this.state.restarting) {
+      this.error("Server is unresponsive, restarting", null, {color: 4});
+      this.restart(true, true);
+    } else {
+      this.monitorTimeout = setTimeout(this.monitorUpdateTimeout.bind(this), this.idleMode ? 60000*5 : 8000);
+    }
+  }
+
+  async checkServer() {
+    if (this.process == null) return;
+    return new Promise(function (resolve, reject) {
+      this.playerlistCallback = resolve;
+      this.playerlistTimeout = setTimeout(reject.bind(null, "Timeout"), 8000);
+      this.command("list");
+    }.bind(this));
   }
 
   /**
    * @returns {Promise<Net.Server>}
    */
   createSocket() {
-    return new Promise(
-      function (resolve, reject) {
+    return new Promise(function (resolve, reject) {
         let server = new Net.Server();
-        server.listen(
-          0,
-          function (s, resolve) {
-            resolve(s);
-          }.bind(this, server, resolve)
-        );
-        setTimeout(
-          function (reject) {
-            reject("Socket took too long to open");
-          }.bind(null, reject),
-          1000
-        );
-      }.bind(this)
-    );
+        server.listen(0, function (s, resolve) { resolve(s);}.bind(this, server, resolve));
+        setTimeout(function (reject) { reject("Socket took too long to open"); }.bind(null, reject),1000);
+    }.bind(this));
   }
 
   async stateUpdate() {
@@ -1185,9 +1334,26 @@ class Server {
     this.nvlaMonitorInstalled = false;
     this.state.running = false;
     this.state.stopping = false;
+    this.state.delayedRestart = false;
+    this.state.delayedStop = false;
+    this.idleMode = false;
     this.memory = null;
+    this.checkInProgress = false;
+    clearTimeout(this.playerlistTimeout);
     this.cpu = null;
+    this.playerlistCallback = null;
+    this.playerlistTimeout = null;
+    this.playerlistTimeoutCount = 0;
     this.stateUpdate();
+    if (this.timeout != null) {
+      clearTimeout(this.timeout);
+      this.timeout = null;
+    }
+    if (this.state.restarting) {
+      this.log("Server Restarting", null, { color: 2 });
+      this.state.restarting = false;
+      this.start();
+    }
   }
 
   async handleError(e) {
@@ -1212,6 +1378,17 @@ class Server {
     let d = data.toString().split("\n");
     for (i in d) {
       if (d[i].trim() == "") continue;
+      if (d[i].indexOf("////NVLAMONITORSTATS--->" > -1)) {
+        let data = d[i].replace("////NVLAMONITORSTATS--->", "");
+        try {
+          data = JSON.parse(data);
+        } catch (e) {
+          this.error("Failed to parse NVLA Monitor stats: {e}", { e: e });
+          return;
+        }
+        this.onMonitorUpdate(data);
+        return;
+      }
       var cleanup = false;
       if (d[i].indexOf("The referenced script") > -1 && d[i].indexOf("on this Behaviour") > -1 && d[i].indexOf("is missing!") > -1) cleanup = true;
       if (d[i].indexOf("Filename:  Line: ") > -1) cleanup = true;
@@ -1231,14 +1408,41 @@ class Server {
         this.state.starting = false;
         this.state.running = true;
         this.uptime = Date.now();
+        this.stateUpdate();
+        this.updateCycle();
       }
       this.roundStartTime = null;
+    } else if (code == 21) {
+      this.state.stopping = true;
+      this.state.delayedStop = true;
+      this.stateUpdate();
     } else if (code == 22) {
-      if (this.state.restarting) {
-
-      }
+      this.state.restarting = true;
+      this.state.delayedRestart = true;
+      this.stateUpdate();
     } else if (code == 19) {
-
+      if (this.state.delayedRestart) {
+        this.state.delayedRestart = false;
+        this.state.restarting = false;
+      } else if (this.state.delayedStop) {
+        this.state.stopping = true;
+        this.state.delayedStop = false;
+      }
+      this.stateUpdate();
+    } else if (code == 17) {
+      this.idleMode = true;
+      this.stateUpdate();
+      if (this.nvlaMonitorInstalled) {
+        clearTimeout(this.playerlistTimeout);
+        this.monitorTimeout = setTimeout(this.monitorUpdateTimeout.bind(this), 60000*5);  
+      }
+    } else if (code == 18) {
+      this.idleMode = false;
+      this.stateUpdate();
+      if (this.nvlaMonitorInstalled) {
+        clearTimeout(this.playerlistTimeout);
+        this.monitorTimeout = setTimeout(this.monitorUpdateTimeout.bind(this), 8000);  
+      }
     }
   }
 
@@ -1255,9 +1459,23 @@ class Server {
         let m = data.splice(0, length)
         let message = "";
         for (let i = 0; i < m.length; i++) message += String.fromCharCode(m[i])
-
         if (message.trim() == ("New round has been started.")) this.roundStartTime = new Date().getTime();
-        if (message.indexOf("Server WILL restart after next round.") > -1 && !this.state.delayedRestart) this.state.delayedRestart = true;
+        if (this.playerlistCallback != null && message.indexOf("List of players") > -1) {
+          var players = message.substring(message.indexOf("List of players")+17, message.indexOf("List of players")+17+message.substring(message.indexOf("List of players")+17).indexOf(")"));
+          players = parseInt(players);
+          if (isNaN(players)) players = 0;
+          let arr = [];
+          for (let i = 0; i < players; i++) arr.push("Unknown");
+          this.players = arr;
+          this.playerlistTimeoutCount = 0;
+          clearTimeout(this.playerlistTimeout);    
+          this.tempListOfPlayersCatcher = true;
+          this.playerlistCallback();
+          return;
+        }
+        if (this.tempListOfPlayersCatcher) message = message.replaceAll("\n*\n", "*");
+        if (this.tempListOfPlayersCatcher && message.indexOf(":") > -1 && (message.indexOf("@") > -1 || message.indexOf("(no User ID)")) && message.indexOf("[") > -1 && message.indexOf("]") > -1 && (message.indexOf("steam") > -1 || message.indexOf("discord") > -1 || message.indexOf("(no User ID)") > -1)) return;
+        else if (this.tempListOfPlayersCatcher) delete this.tempListOfPlayersCatcher;
         if (message.charAt(0) == "\n") message = message.substring(1,message.length);
         if (message.indexOf("Welcome to") > -1 && message.length > 1000) message = colors[code]("Welcome to EXILED (ASCII Cleaned to save your logs)");
         this.log(message.trim(), { logType: "console" }, { color: code });
@@ -1284,7 +1502,7 @@ class Server {
     try {
       this.socket.end();
     } catch (e) {}
-    this.verbose("Console Socket Error: {e}", {e: e != null ? e.code || e.message : e, stack: e != null ? e.stack : e}, {color: 4});
+    this.verbose("Console Socket Error: {e}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e}, {color: 4});
     this.socket = null;
   }
 
@@ -1297,12 +1515,20 @@ class Server {
   async start() {
     if (this.process != null) return -1; //Server process already active
     if (this.state.starting) return -2; //Server is already starting
+    if (this.state.installing) return -3; //Server is installing
+    if (this.state.updating) return -4; //Server is updating
+    if (this.state.configuring) return -5; //Server is configuring
     this.log("Starting server {label}", {label: this.config.label});
     this.state.starting = true;
-    this.stateUpdate();
     this.uptime = new Date().getTime();
     this.players = null;
     this.nvlaMonitorInstalled = false;
+    this.checkInProgress = false;
+    this.playerlistCallback = null;
+    this.playerlistTimeout = null;
+    this.idleMode = false;
+    this.stateUpdate();
+    this.playerlistTimeoutCount = 0;
     try {
       this.socketServer = await this.createSocket();
       const address = this.socketServer.address();
@@ -1310,7 +1536,7 @@ class Server {
       this.socketServer.on("connection", this.handleServerConnection.bind(this));
       this.log("Console socket created on {port}", {port: this.consolePort});
     } catch (e) {
-      this.error("Failed to create console socket: {e}", {e: e != null ? e.code || e.message : e, stack: e != null ? e.stack : e});
+      this.error("Failed to create console socket: {e}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
       return -3;
     }
     let executable = fs.existsSync(path.join(this.serverInstallFolder, "SCPSL.exe")) ? path.join(this.serverInstallFolder, "SCPSL.exe") : fs.existsSync(path.join(this.serverInstallFolder, "SCPSL.x86_64")) ? path.join(this.serverInstallFolder, "SCPSL.x86_64") : null;
@@ -1328,25 +1554,50 @@ class Server {
           cwd: cwd
         });
     } catch (e) {
-      this.error("Failed to start server: {e}", {e: e != null ? e.code || e.message : e, stack: e != null ? e.stack : e});
+      this.error("Failed to start server: {e}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
       return -5;
     }
     this.process.stdout.on("data", this.handleStdout.bind(this));
     this.process.stderr.on("data", this.handleStderr.bind(this));
     this.process.on("error", this.handleError.bind(this));
     this.process.on("exit", this.handleExit.bind(this));
+    this.timeout = setTimeout(this.startTimeout.bind(this), 1000*this.config.maximumStartupTime);
   }
 
-  stop(forced) {
+  /**
+   * Ran when the server takes too long to start
+   */
+  async startTimeout () {
+    this.error("{label} Startup took too long, restarting", {label: this.config.label});
+    this.restart(true, true);
+  }
+
+  stop(forced, kill = false) {
     if (this.process == null) return -1; //Server process not active
     if (this.state.stopping) return -2; //Server already stopping
     this.state.stopping = true;
     this.stateUpdate();
     this.log((forced ? "Force " : "") + "Stopping server {label}", {label: this.config.label}, {color: 6});
+    if (forced && kill) return this.process.kill();
+    if (forced || this.players.length == 0) {
+      this.command("stop");
+      this.timeout = setTimeout(this.stopTimeout.bind(this), 1000*this.config.maximumShutdownTime);
+      return;
+    } else {
+      if (this.state.delayedRestart) this.command("rnr");
+      this.command("snr");
+    }
+  }
+
+  /**
+   * Ran when the server takes too long to stop
+   */
+  async stopTimeout () {
+    this.error("{label} Shutdown took too long, forcing", {label: this.config.label});
     this.process.kill();
   }
 
-  restart(forced) {
+  restart(forced, kill = false) {
     if (this.process == null) return this.start();
     if (this.state.stopping) return -2; //Server stopping
     if (this.state.starting) return -3; //Server restarting
@@ -1355,8 +1606,35 @@ class Server {
     this.state.restarting = true;
     this.stateUpdate();
     this.log((forced ? "Force " : "") + "Restarting server {label}", {label: this.config.label}, {color: 6});
-
+    if (forced && kill) return this.process.kill();
+    if (forced || this.players.length == 0) {
+      this.command("softrestart");
+      this.timeout = setTimeout(this.restartTimeout.bind(this), 1000*this.config.maximumRestartTime);
+      return;
+    } else {
+      if (this.state.delayedStop) this.command("snr");
+      this.command("rnr");
+    }
   }
+
+  /**
+   * Ran when the server takes too long to restart
+   */
+  async restartTimeout () {
+    this.error("{label} Restart took too long, forcing", {label: this.config.label});
+    this.process.kill();
+  }
+
+  cancelDelayedAction () {
+    if (this.state.delayedRestart == false && this.state.delayedStop == false) return;
+    if (this.state.delayedRestart) this.command("rnr");
+    if (this.state.delayedStop) this.command("snr");
+  }
+}
+
+class nvlaMonitorUpdate {
+  /** @type Array<string> */
+  players = [];
 }
 
 class steamLogEvent {
@@ -1409,9 +1687,6 @@ class steam extends EventEmitter {
 
   /** @type string */
   runId;
-
-  /** @type Array<Function> */
-  queue = [];
 
   /** @type NVLA["logger"] */
   logger;
@@ -1496,7 +1771,7 @@ class steam extends EventEmitter {
         this.log("Got current install state: {percentage} - {state} - {downloaded}/{total}", {percentage: this.percentage, state: this.state, downloaded: this.kbytesDownloaded, total: this.kbytesTotal}, { color: 3 });
       }
     } catch (e) {
-      this.error("Error in steam stdout: {e}", { e: e != null ? e.code || e.message : e, stack: e != null ? e.stack : e });
+      this.error("Error in steam stdout: {e}", { e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e });
     }
   }
 
@@ -1515,7 +1790,7 @@ class steam extends EventEmitter {
           try {
             this.onstdout(this.runId, d[i], true);
           } catch (e) {
-            this.error("Error in steam stdout {e}", {e: e != null ? e.code || e.message : e,stack: e != null ? e.stack : e});
+            this.error("Error in steam stdout {e}", {e: e != null ? e.code || e.message || e : e,stack: e != null ? e.stack : e});
           }
         }
     }.bind(this));
@@ -1559,7 +1834,7 @@ class steam extends EventEmitter {
     try {
       result = await this.run(params);
     } catch (e) {
-      this.log("Steam execution caused exception: {e}", {e: e != null ? e.code || e.message : e, stack: e != null ? e.stack : e});
+      this.log("Steam execution caused exception: {e}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
     }
     this.inUse = false;
     this.runId = null;
@@ -1640,7 +1915,7 @@ class steam extends EventEmitter {
       this.log("Downloaded compressed file", null, { color: 5 });
     } catch (e) {
       this.error("Failed to download steam: {e}", {
-        e: e != null ? e.code || e.message : e,
+        e: e != null ? e.code || e.message || e : e,
         stack: e != null ? e.stack : e,
       });
       return -3;
@@ -1651,7 +1926,7 @@ class steam extends EventEmitter {
         buffer = require("zlib").gunzipSync(buffer.data);
       } catch (e) {
         this.log("Failed to decompress zip: {e}", {
-          e: e != null ? e.code || e.message : e,
+          e: e != null ? e.code || e.message || e : e,
           stack: e != null ? e.stack : e,
         });
         return -1;
@@ -1660,10 +1935,7 @@ class steam extends EventEmitter {
       let writer = tar.extract(basePath);
       try {
         let obj = { resolve: function () { }, reject: function () { } };
-        setTimeout(function () {
-          writer.write(buffer);
-          writer.end();
-        }, 100);
+        setTimeout(function () { writer.write(buffer); writer.end();}, 100);
         await new Promise(
           function (resolve, reject) {
             this.on("finish", resolve);
@@ -1671,7 +1943,7 @@ class steam extends EventEmitter {
           }.bind(writer)
         );
       } catch (e) {
-        this.error("Failed extraction: {e}", { e: e != null ? e.code || e.message : e, stack: e != null ? e.stack : e });
+        this.error("Failed extraction: {e}", { e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e });
         return -2;
       }
       this.log("Extraction complete", null, { color: 5 });
@@ -1684,7 +1956,7 @@ class steam extends EventEmitter {
         zip.extractAllTo(basePath, true, true);
         this.log("Extraction complete", null, { color: 5 });
       } catch (err) {
-        this.error("Failed extraction: {e}", { e: e != null ? e.code || e.message : e, stack: e != null ? e.stack : e });
+        this.error("Failed extraction: {e}", { e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e });
         return -2;
       }
     }
@@ -1771,41 +2043,22 @@ class NVLA extends EventEmitter {
       );
     }
 
-    const writableStream = new Stream.Writable();
-    writableStream._write = (chunk, encoding, next) => next();
-
-    transports.push(
-      new winston.transports.Stream({
-        level: "verbose",
-        format: winston.format.printf((info) => {
-          if (this.config.seq.enabled) {
-            processPrintF(info, true);
-            info.message = info.message.replace(ansiStripRegex, "");
-            if (this.alternative.process != null && !this.stopped) this.alternative.log(info);
-          }
-          return;
-        }),
-        stream: writableStream
-      })
-    );
-
     this.logger = winston.createLogger({
       format: winston.format.combine(
         winston.format.errors({ stack: true }),
         winston.format.json()
       ),
-      transports: transports,
+      transports: transports
     });
 
-    this.logger.exitOnError = false;
-
     this.alternative = new winstonLogger(this, this.config.seq);
+
+    this.logger.exitOnError = false;
 
     this.updateInterval = setInterval(this.update.bind(this), 1000);
   }
 
   async checkMemory () {
-    //logger.verbose(Math.round(os.freemem() / os.totalmem() * 100) + "%");
     //If system has less than or equal to 100MB of free memory, investigate
     if (this.lowMemory == true && os.freemem() > 100000000) this.lowMemory = false;
     if (os.freemem() <= 100000000 && this.lowMemory == false) {
@@ -1820,9 +2073,9 @@ class NVLA extends EventEmitter {
       });
       if (s.length > 0) {
         s.sort(function (a,b){return b.bytes-a.bytes});
-        this.log(s);
+        this.log("Servers: {s}", {s: s});
   
-        this.log("Combined Usage:", Math.round(SCPSLTotal/(os.totalmem()-os.freemem())*100) + "%")
+        this.log("Combined Usage: {usage}%", {usage: Math.round(SCPSLTotal/(os.totalmem()-os.freemem())*100)})
   
         //If SCPSL servers are using a majority of system memory
         if (Math.round(SCPSLTotal/(os.totalmem()-os.freemem())*100) > 50) {
@@ -1850,7 +2103,7 @@ class NVLA extends EventEmitter {
     if (pids.length > 0) {
       pidusage(pids, function (e, stats) {
         if (e) {
-          this.error("Failed to get server process usage: {e}", { e: e != null ? e.code || e.message : e, stack: e != null ? e.stack : e });
+          this.verbose("Failed to get server process usage: {e}", { e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e });
           return;
         }
         for (i in stats) {
@@ -1893,7 +2146,7 @@ class NVLA extends EventEmitter {
     try {
       if (this.config.seq.enabled) await this.alternative.start();
     } catch (e) {
-      this.error("Failed to start winston seq: {e}", { e: e != null ? e != null ? e.code || e.message : e : e, stack: e != null ? e.stack : e});
+      this.error("Failed to start winston seq: {e}", { e: e != null ? e != null ? e.code || e.message || e : e : e, stack: e != null ? e.stack : e});
     }
     this.log("Welcome to "+chalk.green("NotVeryLocalAdmin")+" v"+pack.version+" By "+chalk.cyan(pack.author)+", console is ready");
     this.stopped = false;
@@ -2039,7 +2292,7 @@ class Vega {
     try {
       this.messageHandler.handle(m, s);
     } catch (e) {
-      this.error("Failed to handle message: {e} {messageType}", { e: e != null ? e.code || e.message : e, stack: e != null ? e.stack : e, messageType: m.type });
+      this.error("Failed to handle message: {e} {messageType}", { e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e, messageType: m.type });
     }
   }
 
@@ -2147,7 +2400,7 @@ class Vega {
   }
 
   async onError(e) {
-    this.error("Vega Connection error: {e}", { e: e != null ? e.code || e.message : e, stack: e != null ? e.stack : e });
+    this.error("Vega Connection error: {e}", { e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e });
   }
 }
 
