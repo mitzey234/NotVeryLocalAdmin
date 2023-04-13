@@ -72,7 +72,7 @@ async function evaluate(args) {
         var server = getServer(args[0]);
         if (server == null) return console.log("Server not found");
         server.log("Server Restarted by console");
-        var resp = server.restart();
+        var resp = await server.restart();
         if (resp != null) return console.log("Restart failed: " + resp);
     } else if (command == "exec" || command == "run") {
         if (args[0] == null && args[1] == null) return console.log("Usage: exec/run <Server label|UID|Port> <command>");
