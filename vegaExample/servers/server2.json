@@ -1,40 +1,42 @@
 {
-    "filename": "server2.json",
+    "filename": "server1.json",
     "label": "Server-2",
     "id": "y56r546ry6h",
-    "dedicatedFiles": [
-        {
-            "path": [
-                ""
-            ],
-            "name": "test.txt",
-            "merging": true,
-            "data": ""
-        }
-    ],
+    "dedicatedFiles": [],
     "globalDedicatedFiles": [],
     "plugins": [
-        "BrightPlugin"
+        "BrightPlugin",
+        "NVLAMonitorPlugin"
     ],
     "customAssemblies": [],
     "dependencies": [
         "NVorbis",
-        "SCPSLAudioApi"
+        "SCPSLAudioApi",
+        "TcpSL",
+        "Newtonsoft.Json",
+        "0Harmony"
     ],
-    "pluginFiles": [],
+    "pluginFiles": [
+        {
+            "path": [
+                "NVLAMonitorPlugin"
+            ],
+            "name": "config.yml",
+            "merging": false,
+            "data": "e30NCg=="
+        }
+    ],
     "port": 7777,
     "verkey": null,
-    "assignedMachine": "",
+    "assignedMachine": "y56r546ry6h",
     "beta": null,
     "betaPassword": null,
-    "installArguments": [
-        "+@sSteamCmdForcePlatformType linux"
-    ],
+    "installArguments": ["+@sSteamCmdForcePlatformType linux"],
     "autoStart": true,
-    "dailyRestarts": false,
+    "dailyRestarts": true,
     "restartTime": {
-        "hour": 0,
-        "minute": 0
+        "hour": 2,
+        "minute": 47
     },
     "maximumStartupTime": 60,
     "maximumServerUnresponsiveTime": 60,

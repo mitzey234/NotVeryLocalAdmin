@@ -360,7 +360,7 @@ class winstonLogger {
 
 class settings {
   /** @type string */
-  serversFolder = path.join(__dirname, "servers");
+  serversFolder = path.resolve(path.join(__dirname, "servers"));
 
   /** @type vegaSettings */
   vega;
@@ -374,16 +374,21 @@ class settings {
   level = "info";
 
   constructor() {
-    if (!fs.existsSync(path.join(__dirname, "config.json")))
-      fs.writeFileSync(path.join(__dirname, "config.json"), "{}");
+    if (!fs.existsSync(path.join(__dirname, "config.json"))) fs.writeFileSync(path.join(__dirname, "config.json"), "{}");
     /** @type {import("./config.json")} */
-    let obj = JSON.parse(fs.readFileSync(path.join(__dirname, "config.json")));
+    let obj = JSON.parse(fs.readFileSync(path.join(__dirname, "config.json")))
     this.vega = new vegaSettings(obj.vega);
     this.logSettings = new logSettings(obj.logSettings);
     this.seq = new seqSettings(obj.seq);
     for (var i in obj) {
       if (i == "vega") continue;
       this[i] = obj[i];
+    }
+    try {
+      this.serversFolder = path.resolve(this.serversFolder);
+    } catch (e) {
+      console.log("Failed to parse servers folder");
+      this.serversFolder = path.resolve(path.join(__dirname, "servers"));
     }
     fs.writeFileSync(
       path.join(__dirname, "config.json"),
@@ -659,7 +664,7 @@ class Server {
     this.logger = main.logger.child({ type: this });
     this.config = config;
     this.state = new serverState();
-    this.serverContainer = path.join(this.main.config.serversFolder, this.config.id);
+    this.serverContainer = path.join(path.resolve(this.main.config.serversFolder), this.config.id);
     this.serverInstallFolder = path.join(this.serverContainer, "scpsl");
     this.dedicatedServerAppdata = path.join(this.serverInstallFolder, "AppData", "SCP Secret Laboratory");
     this.pluginsFolderPath = path.join(this.dedicatedServerAppdata, "PluginAPI", "plugins", "global");
@@ -674,7 +679,7 @@ class Server {
       this.setupWatchers();
     } catch (e) {
       this.errorState = "Failed to create folders: " + e;
-      this.main.error.bind(this)("Failed to create folders: " + e);
+      this.error("Failed to create folders: {e}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
     }
   }
 
@@ -708,13 +713,13 @@ class Server {
     await this.stopWatchers();
     this.pluginsFolderWatch = chokidar.watch(this.pluginsFolderPath, {ignoreInitial: true,persistent: true});
     this.pluginsFolderWatch.on("all", this.onPluginConfigFileEvent.bind(this));
-    this.pluginsFolderWatch.on("error", this.main.error.bind(this));
+    this.pluginsFolderWatch.on("error", e => this.error("Plugin Folder Watch Error: {e}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e}));
     this.configFolderWatch = chokidar.watch(this.serverConfigsFolder, {ignoreInitial: true, persistent: true});
     this.configFolderWatch.on("all", this.onConfigFileEvent.bind(this));
-    this.configFolderWatch.on("error", this.main.error.bind(this));
+    this.configFolderWatch.on("error", e => this.error("Config Folder Watch Error: {e}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e}));
     this.globalConfigFolderWatch = chokidar.watch(this.globalDedicatedServerConfigFiles, {ignoreInitial: true, persistent: true});
     this.globalConfigFolderWatch.on("all", this.onGlobalConfigFileEvent.bind(this));
-    this.globalConfigFolderWatch.on("error", this.main.error.bind(this));
+    this.globalConfigFolderWatch.on("error", e => this.error("Global Config Folder Watch Error: {e}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e}));
   }
 
   async stopWatchers() {
@@ -1149,7 +1154,7 @@ class Server {
           this.config.verkey
         );
       } catch (e) {
-        this.main.error.bind(this)("Failed to write verkey.txt:", e);
+        this.error("Failed to write verkey.txt: {e}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
       }
     } else {
       try {
@@ -1173,7 +1178,7 @@ class Server {
     this.stateUpdate();
     this.log("Installing server {label}", {label: this.config.label});
     try {
-      let result = await this.main.steam.downloadApp("996560", this.serverInstallFolder, this.config.beta,  this.config.betaPassword, this.config.installArguments);
+      let result = await this.main.steam.downloadApp("996560", path.normalize(this.serverInstallFolder), this.config.beta,  this.config.betaPassword, this.config.installArguments);
       if (result != 0) throw "Failed to install server";
       this.log("Installed SCPSL", null, {color: 3});
       this.installed = true;
@@ -1205,7 +1210,7 @@ class Server {
     this.stateUpdate();
     this.log("Updating server {label}", {label: this.config.label});
     try {
-      let result = await this.main.steam.downloadApp("996560", this.serverInstallFolder, this.config.beta, this.config.betaPassword, this.config.installArguments);
+      let result = await this.main.steam.downloadApp("996560", path.normalize(this.serverInstallFolder), this.config.beta, this.config.betaPassword, this.config.installArguments);
       if (result != 0) throw "Failed to update server";
       this.log("Updated SCPSL", null, {color: 3});
       if (this.process != null) this.updatePending = true;
@@ -1334,6 +1339,7 @@ class Server {
     this.nvlaMonitorInstalled = false;
     this.state.running = false;
     this.state.stopping = false;
+    this.state.starting = false;
     this.state.delayedRestart = false;
     this.state.delayedStop = false;
     this.idleMode = false;
@@ -1357,7 +1363,7 @@ class Server {
   }
 
   async handleError(e) {
-    this.main.error.bind(this)("Error launching server:", e);
+    this.error("Error launching server: {e}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
   }
 
   async handleStdout(data) {
@@ -1378,7 +1384,7 @@ class Server {
     let d = data.toString().split("\n");
     for (i in d) {
       if (d[i].trim() == "") continue;
-      if (d[i].indexOf("////NVLAMONITORSTATS--->" > -1)) {
+      if (d[i].indexOf("////NVLAMONITORSTATS--->") > -1) {
         let data = d[i].replace("////NVLAMONITORSTATS--->", "");
         try {
           data = JSON.parse(data);
@@ -1598,11 +1604,11 @@ class Server {
   }
 
   restart(forced, kill = false) {
-    if (this.process == null) return this.start();
     if (this.state.stopping) return -2; //Server stopping
     if (this.state.starting) return -3; //Server restarting
     if (this.state.restarting) return -4; //Server restarting
     if (this.state.uninstalling) return -5; //Server uninstalling
+    if (this.process == null) return this.start();
     this.state.restarting = true;
     this.stateUpdate();
     this.log((forced ? "Force " : "") + "Restarting server {label}", {label: this.config.label}, {color: 6});
@@ -1781,7 +1787,7 @@ class steam extends EventEmitter {
     
     let proc = this.activeProcess;
 
-    proc.write(this.binaryPath + " " + params.join(" ") + "\r");
+    proc.write((process.platform == "darwin" ? this.binaryPath : path.parse(this.binaryPath).base) + " " + params.join(" ") + "\r");
     proc.write(process.platform === "win32" ? "exit $LASTEXITCODE\r" : "exit $?\r");
 
     proc.on("data", function (data) {
@@ -1988,7 +1994,7 @@ class NVLA extends EventEmitter {
   vega;
 
   /** @type ServerManager */
-  ServerManager;
+  ServerManager = new ServerManager();
 
   /** @type import("winston")["Logger"]["prototype"] */
   logger;
@@ -2155,15 +2161,12 @@ class NVLA extends EventEmitter {
     if (Array.isArray(serversPath)) serversPath = joinPaths(serversPath);
     if (!fs.existsSync(serversPath)) fs.mkdirSync(serversPath, { recursive: true });
     this.steam = new steam(this);
-    /*
     let check = await this.steam.check();
     if (this.steam.found != true || (typeof check == "number" && check != 0) || !this.steam.ready) {
       this.error("Steam check failed: {e}", { e: check });
       process.exit();
     }
-    */
     this.log("Steam ready", null, { color: "blue" });
-    this.ServerManager = new ServerManager();
     this.vega = new Vega(this);
     this.vega.connect();
   }
