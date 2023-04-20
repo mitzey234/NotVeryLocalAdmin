@@ -147,7 +147,7 @@ class globalDedicatedServerConfigurationRequest {
     }
 }
 
-class updateConfigFile {
+class updateFile {
     /** @type {Array<string>} */
     path;
 
@@ -160,44 +160,25 @@ class updateConfigFile {
     /** @type {string} */
     data;
 
+    /** @type {string} */
+    fileType;
+
     /**
      * @param {string} serverId
      * @param {string} path
      * @param {string} data
      */
-    constructor (serverId, path, name, data) {
-        this.type = "updateConfigFile";
+    constructor (serverId, path, name, data, fileType) {
+        this.type = "updateFile";
         this.data = data;
         this.path = path;
         this.name = name;
         this.serverId = serverId;
+        this.fileType = fileType;
     }
 }
 
-class removeConfigFile {
-    /** @type {Array<string>} */
-    path;
-
-    /** @type {string} */
-    name;
-
-    /** @type {string} */
-    serverId;
-
-    /**
-     * @param {string} serverId
-     * @param {string} path
-     * @param {string} data
-     */
-    constructor (serverId, path, name) {
-        this.type = "removeConfigFile";
-        this.path = path;
-        this.serverId = serverId;
-        this.name = name;
-    }
-}
-
-class updateGlobalConfigFile {
+class removeFile {
     /** @type {Array<string>} */
     path;
 
@@ -208,92 +189,20 @@ class updateGlobalConfigFile {
     serverId;
 
     /** @type {string} */
-    data;
+    fileType;
 
     /**
      * @param {string} serverId
      * @param {string} path
      * @param {string} data
+     * @param {string} fileType
      */
-    constructor (serverId, path, name, data) {
-        this.type = "updateGlobalConfigFile";
-        this.data = data;
-        this.path = path;
-        this.name = name;
-        this.serverId = serverId;
-    }
-}
-
-class removeGlobalConfigFile {
-    /** @type {Array<string>} */
-    path;
-
-    /** @type {string} */
-    name;
-
-    /** @type {string} */
-    serverId;
-
-    /**
-     * @param {string} serverId
-     * @param {string} path
-     * @param {string} data
-     */
-    constructor (serverId, path, name) {
-        this.type = "removeGlobalConfigFile";
+    constructor (serverId, path, name, fileType) {
+        this.type = "removeFile";
         this.path = path;
         this.serverId = serverId;
         this.name = name;
-    }
-}
-
-class updatePluginConfigFile {
-    /** @type {Array<string>} */
-    path;
-
-    /** @type {string} */
-    name;
-
-    /** @type {string} */
-    serverId;
-
-    /** @type {string} */
-    data;
-
-    /**
-     * @param {string} serverId
-     * @param {string} path
-     * @param {string} data
-     */
-    constructor (serverId, path, name, data) {
-        this.type = "updatePluginConfigFile";
-        this.data = data;
-        this.path = path;
-        this.name = name;
-        this.serverId = serverId;
-    }
-}
-
-class removePluginConfigFile {
-    /** @type {Array<string>} */
-    path;
-
-    /** @type {string} */
-    name;
-
-    /** @type {string} */
-    serverId;
-
-    /**
-     * @param {string} serverId
-     * @param {string} path
-     * @param {string} data
-     */
-    constructor (serverId, path, name) {
-        this.type = "removePluginConfigFile";
-        this.path = path;
-        this.serverId = serverId;
-        this.name = name;
+        this.fileType = fileType;
     }
 }
 
@@ -334,11 +243,7 @@ module.exports = {
     customAssemblyRequest: customAssemblyRequest,
     dependencyRequest: dependencyRequest,
     dedicatedServerConfigurationRequest: dedicatedServerConfigurationRequest,
-    updateConfigFile: updateConfigFile,
-    removeConfigFile: removeConfigFile,
-    updatePluginConfigFile: updatePluginConfigFile,
-    removePluginConfigFile: removePluginConfigFile,
+    updateFile: updateFile,
     globalDedicatedServerConfigurationRequest: globalDedicatedServerConfigurationRequest,
-    updateGlobalConfigFile: updateGlobalConfigFile,
-    removeGlobalConfigFile: removeGlobalConfigFile
+    removeFile: removeFile
 }

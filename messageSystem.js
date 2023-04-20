@@ -9,7 +9,7 @@ function joinPaths(arr) {
       p = path.join(p, arr[i]);
     }
     return p;
-  }
+}
 
 let classes = new Map();
 

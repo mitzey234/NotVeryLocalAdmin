@@ -12,8 +12,8 @@ process.on("message", onMessage);
 function onMessage (m) {
     if (m.type == "config") {
         settings = m.settings;
-        let transports = [];
-        transports.push(new SeqTransport({
+        let transport = new SeqTransport({
+            maxBatchingTime: 100,
             level: "verbose",
             format: winston.format.printf((info) => {
                 for (i in info.replacementData) info[i] = info.replacementData[i];
@@ -25,7 +25,8 @@ function onMessage (m) {
             onError: (e) => {
                 console.error(e);
             },
-        }));
+        });
+        let transports = [transport];
         logger = winston.createLogger({
             format: winston.format.combine(
               winston.format.errors({ stack: true }),

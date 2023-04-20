@@ -4,7 +4,7 @@ let latest = null;
 
 var inProg = false;
 
-let SQLQ = "select @Id, @Timestamp, @Message, @Properties from stream where @Arrived > Arrived('$eid') and @Timestamp > Now() - 1d order by @Timestamp desc limit 100";
+let SQLQ = "select @Id, @Timestamp, @Message, @Properties from stream where @Arrived > Arrived('$eid') and @Timestamp > Now() - 1d order by @Timestamp desc limit 10000";
 
 async function test () {
     let data = await axios({
@@ -20,6 +20,8 @@ async function test () {
     data = data.data;
     latest = data[0].Id;
 }
+
+let arr = [];
 
 async function run () {
     if (inProg) return;
@@ -38,7 +40,13 @@ async function run () {
     //console.log("Data Got");
     data = data.data;
     data = data.Rows;
-    for (var i = data.length-1; i >= 0; i--) console.log(data[i][2]);
+    for (var i = data.length-1; i >= 0; i--) {
+        if (!arr.includes(data[i][0])) {
+            arr.push(data[i][0]);
+            if (arr.length > 100) arr.shift();
+            console.log(data[i][2], data[i][3]);
+        }
+    }
     if (data.length == 0) return inProg = false;
     latest = data[0][0];
     inProg = false;

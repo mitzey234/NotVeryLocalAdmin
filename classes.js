@@ -390,10 +390,7 @@ class settings {
       console.log("Failed to parse servers folder");
       this.serversFolder = path.resolve(path.join(__dirname, "servers"));
     }
-    fs.writeFileSync(
-      path.join(__dirname, "config.json"),
-      JSON.stringify(this, null, 4)
-    );
+    fs.writeFileSync(path.join(__dirname, "config.json"), JSON.stringify(this, null, 4));
   }
 }
 
@@ -750,11 +747,11 @@ class Server {
     if (event == "add" || event == "change") {
       let p = path.parse(path.normalize(filePath)).dir.split(path.sep);
       let name = path.parse(filePath).base;
-      this.main.vega.client.sendMessage(new mt.updateGlobalConfigFile(this.config.id, p, name, fs.readFileSync(path.join(this.globalDedicatedServerConfigFiles, filePath)).toString("base64")));
+      this.main.vega.client.sendMessage(new mt.updateFile(this.config.id, p, name, fs.readFileSync(path.join(this.globalDedicatedServerConfigFiles, filePath)).toString("base64"), "GlobalConfigFile"));
     } else if (event == "unlink") {
       let p = path.parse(path.normalize(filePath)).dir.split(path.sep);
       let name = path.parse(filePath).base;
-      this.main.vega.client.sendMessage(new mt.removeGlobalConfigFile(this.config.id, p, name));
+      this.main.vega.client.sendMessage(new mt.removeFile(this.config.id, p, name, "GlobalConfigFile"));
     }
     this.verbose("Global Config file event: {event} {filePath}", { event: event, filePath: filePath }, { color: 6 });
   }
@@ -771,11 +768,11 @@ class Server {
     if (event == "add" || event == "change") {
       let p = path.parse(path.normalize(filePath)).dir.split(path.sep);
       let name = path.parse(filePath).base;
-      this.main.vega.client.sendMessage(new mt.updateConfigFile(this.config.id, p, name, fs.readFileSync(path.join(this.serverConfigsFolder, filePath)).toString("base64")));
+      this.main.vega.client.sendMessage(new mt.updateFile(this.config.id, p, name, fs.readFileSync(path.join(this.serverConfigsFolder, filePath)).toString("base64"), "ConfigFile"));
     } else if (event == "unlink") {
       let p = path.parse(path.normalize(filePath)).dir.split(path.sep);
       let name = path.parse(filePath).base;
-      this.main.vega.client.sendMessage(new mt.removeConfigFile(this.config.id, p, name));
+      this.main.vega.client.sendMessage(new mt.removeFile(this.config.id, p, name, "ConfigFile"));
     }
     this.verbose("Config file event: {event} {filePath}", { event: event, filePath: filePath }, { color: 6 });
   }
@@ -793,11 +790,11 @@ class Server {
     if (event == "add" || event == "change") {
       let p = path.parse(path.normalize(filePath)).dir.split(path.sep);
       let name = path.parse(filePath).base;
-      this.main.vega.client.sendMessage(new mt.updatePluginConfigFile(this.config.id, p, name, fs.readFileSync(path.join(this.pluginsFolderPath, filePath)).toString("base64")));
+      this.main.vega.client.sendMessage(new mt.updateFile(this.config.id, p, name, fs.readFileSync(path.join(this.pluginsFolderPath, filePath)).toString("base64"), "PluginConfigFile"));
     } else if (event == "unlink") {
       let p = path.parse(path.normalize(filePath)).dir.split(path.sep);
       let name = path.parse(filePath).base;
-      this.main.vega.client.sendMessage(new mt.removePluginConfigFile(this.config.id, p, name));
+      this.main.vega.client.sendMessage(new mt.removeFile(this.config.id, p, name, "PluginConfigFile"));
     }
     this.verbose("Plugin config file event: {event} {filePath}", { event: event, filePath: filePath }, { color: 6 });
   }
@@ -1172,13 +1169,21 @@ class Server {
     if (this.config.autoStart && this.process == null) this.start();
   }
 
+  steamStateUpdate () {
+    this.log("Test: {perc} {state}", {perc: this.main.steam.percentage, state: this.main.steam.state});
+  }
+
   async install() {
     if (this.state.installing) return -1; // Already installing
     this.state.installing = true;
     this.stateUpdate();
     this.log("Installing server {label}", {label: this.config.label});
     try {
+      this.main.steam.on("state", this.steamStateUpdate);
+      this.main.steam.on("percentage", this.steamStateUpdate);
       let result = await this.main.steam.downloadApp("996560", path.normalize(this.serverInstallFolder), this.config.beta,  this.config.betaPassword, this.config.installArguments);
+      this.main.steam.removeListener("state", this.steamStateUpdate);
+      this.main.steam.removeListener("percentage", this.steamStateUpdate);
       if (result != 0) throw "Failed to install server";
       this.log("Installed SCPSL", null, {color: 3});
       this.installed = true;
@@ -1339,7 +1344,11 @@ class Server {
     this.nvlaMonitorInstalled = false;
     this.state.running = false;
     this.state.stopping = false;
-    this.state.starting = false;
+    if (this.state.starting) {
+      this.error("Server Startup failed, Exited with {code} - {signal}", { code: code, signal: signal });
+      this.errorState = "Server exited during startup, Exited with "+ code +" - "+signal;
+      this.state.starting = false;
+    }
     this.state.delayedRestart = false;
     this.state.delayedStop = false;
     this.idleMode = false;
@@ -1723,18 +1732,21 @@ class steam extends EventEmitter {
   log(arg, obj, meta) {
     if (obj == null) obj = {};
     obj.type = this;
+    obj.machineId = this.main.config.vega.id;
     this.logger.info(arg, obj, meta);
   }
 
   error(arg, obj, meta) {
     if (obj == null) obj = {};
     obj.type = this;
+    obj.machineId = this.main.config.vega.id;
     this.logger.error(arg, obj, meta);
   }
 
   verbose(arg, obj, meta) {
     if (obj == null) obj = {};
     obj.type = this;
+    obj.machineId = this.main.config.vega.id;
     this.logger.verbose(arg, obj, meta);
   }
 
@@ -1753,8 +1765,8 @@ class steam extends EventEmitter {
         if (percent == "----") percent = null;
         else percent = parseInt(percent);
         this.percentage = percent;
-        this.emit("percentage", percent);
         this.state = str.substring(7, str.length);
+        this.emit("percentage", percent);
         if (this.state.indexOf("(") > -1 && this.state.indexOf(")") > -1 && this.state.indexOf(" of ") > -1) this.state = this.state.replace(this.state.substring(this.state.indexOf("(") - 1,this.state.indexOf(")") + 1), "");
         this.log("Got current install state: {percentage} - {state}", { percentage: this.percentage, state: this.state }, { color: 3 });
         this.emit("state", this.state);
