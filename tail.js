@@ -40,13 +40,16 @@ async function run () {
     //console.log("Data Got");
     data = data.data;
     data = data.Rows;
+    var count = 0;
     for (var i = data.length-1; i >= 0; i--) {
         if (!arr.includes(data[i][0])) {
             arr.push(data[i][0]);
             if (arr.length > 100) arr.shift();
-            console.log(data[i][2]);
+            count += 1;
+            //console.log(data[i][2]);
         }
     }
+    if (count > 0) console.log(count, data[0][0]);
     if (data.length == 0) return inProg = false;
     latest = data[0][0];
     inProg = false;

@@ -1798,7 +1798,7 @@ class steam extends EventEmitter {
     
     let proc = this.activeProcess;
 
-    proc.write((process.platform == "darwin" ? this.binaryPath : path.parse(this.binaryPath).base) + " " + params.join(" ") + "\r");
+    proc.write((process.platform == "darwin" ? this.binaryPath : "./"+path.parse(this.binaryPath).base) + " " + params.join(" ") + "\r");
     proc.write(process.platform === "win32" ? "exit $LASTEXITCODE\r" : "exit $?\r");
 
     proc.on("data", function (data) {
