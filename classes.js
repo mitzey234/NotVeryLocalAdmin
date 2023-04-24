@@ -1278,7 +1278,6 @@ class Server {
    * @returns 
    */
   onMonitorUpdate (data) {
-    this.log("Monitor Update");
     if (this.nvlaMonitorInstalled == false) {
       this.nvlaMonitorInstalled = true;
       this.log("NVLA Monitor detected", null, {color: 3});

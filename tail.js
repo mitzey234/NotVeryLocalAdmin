@@ -44,7 +44,7 @@ async function run () {
         if (!arr.includes(data[i][0])) {
             arr.push(data[i][0]);
             if (arr.length > 100) arr.shift();
-            console.log(data[i][2], data[i][3]);
+            console.log(data[i][2]);
         }
     }
     if (data.length == 0) return inProg = false;
