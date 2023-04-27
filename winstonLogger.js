@@ -13,7 +13,7 @@ function onMessage (m) {
     if (m.type == "config") {
         settings = m.settings;
         let transport = new SeqTransport({
-            maxBatchingTime: 100,
+            maxBatchingTime: 50,
             level: "verbose",
             format: winston.format.printf((info) => {
                 for (i in info.replacementData) info[i] = info.replacementData[i];

@@ -96,12 +96,7 @@ let consoleObjectTypes = {
 
 function currTime(date) {
   const d = new Date();
-  const str =
-    (date ? `${d.getMonth() + 1}/${d.getDate()} ` : "") +
-    `${d.toTimeString().slice(0, 8)}.${d
-      .getMilliseconds()
-      .toString()
-      .padStart(3, "0")}`;
+  const str = (date ? `${d.getMonth() + 1}/${d.getDate()} ` : "") + `${d.toTimeString().slice(0, 8)}.${d.getMilliseconds().toString().padStart(3, "0")}`;
   return str;
 }
 
@@ -652,6 +647,12 @@ class Server {
   /** @type boolean */
   idleMode = false;
 
+  /** @type number */
+  percent;
+
+  /** @type string */
+  steamState;
+
   /**
    * @param {NVLA} main
    * @param {ServerConfig} config
@@ -1170,7 +1171,9 @@ class Server {
   }
 
   steamStateUpdate () {
-    this.log("Test: {perc} {state}", {perc: this.main.steam.percentage, state: this.main.steam.state});
+    this.percent = this.main.steam.percentage;
+    this.steamState = this.main.steam.state;
+    this.stateUpdate();
   }
 
   async install() {
@@ -1179,11 +1182,13 @@ class Server {
     this.stateUpdate();
     this.log("Installing server {label}", {label: this.config.label});
     try {
-      this.main.steam.on("state", this.steamStateUpdate);
-      this.main.steam.on("percentage", this.steamStateUpdate);
+      this.main.steam.on("state", this.steamStateUpdate.bind(this));
+      this.main.steam.on("percentage", this.steamStateUpdate.bind(this));
       let result = await this.main.steam.downloadApp("996560", path.normalize(this.serverInstallFolder), this.config.beta,  this.config.betaPassword, this.config.installArguments);
-      this.main.steam.removeListener("state", this.steamStateUpdate);
-      this.main.steam.removeListener("percentage", this.steamStateUpdate);
+      this.percent = null;
+      this.steamState = null;
+      this.main.steam.removeListener("state", this.steamStateUpdate.bind(this));
+      this.main.steam.removeListener("percentage", this.steamStateUpdate.bind(this));
       if (result != 0) throw "Failed to install server";
       this.log("Installed SCPSL", null, {color: 3});
       this.installed = true;
@@ -1215,7 +1220,13 @@ class Server {
     this.stateUpdate();
     this.log("Updating server {label}", {label: this.config.label});
     try {
+      this.main.steam.on("state", this.steamStateUpdate.bind(this));
+      this.main.steam.on("percentage", this.steamStateUpdate.bind(this));
       let result = await this.main.steam.downloadApp("996560", path.normalize(this.serverInstallFolder), this.config.beta, this.config.betaPassword, this.config.installArguments);
+      this.percent = null;
+      this.steamState = null;
+      this.main.steam.removeListener("state", this.steamStateUpdate.bind(this));
+      this.main.steam.removeListener("percentage", this.steamStateUpdate.bind(this));
       if (result != 0) throw "Failed to update server";
       this.log("Updated SCPSL", null, {color: 3});
       if (this.process != null) this.updatePending = true;
@@ -1236,6 +1247,7 @@ class Server {
   }
 
   async updateCycle () {
+    this.main.vega.serverStateChange(this);
     if (this.config.dailyRestarts && new Date().getHours() == this.config.restartTime.hour && new Date().getMinutes() == this.config.restartTime.minute) {
       let date = ((new Date().getMonth()) + "-" + (new Date().getDate()));
       if (this.lastRestart != date) {
@@ -1358,7 +1370,6 @@ class Server {
     this.playerlistCallback = null;
     this.playerlistTimeout = null;
     this.playerlistTimeoutCount = 0;
-    this.stateUpdate();
     if (this.timeout != null) {
       clearTimeout(this.timeout);
       this.timeout = null;
@@ -1368,6 +1379,7 @@ class Server {
       this.state.restarting = false;
       this.start();
     }
+    this.stateUpdate();
   }
 
   async handleError(e) {
@@ -1758,6 +1770,7 @@ class steam extends EventEmitter {
   async onstdout(runId, str, isError) {
     this.emit("log", new steamLogEvent(runId, str, isError));
     try {
+      if (str.trim() == "") return;
       this.verbose(`${str}`, null, { color: 6 });
       if (str[0] == "[" && str[5] == "]") {
         var percent = str.substring(1, 5).replace("%", "");
@@ -1805,7 +1818,7 @@ class steam extends EventEmitter {
         let d = data.toString().split("\n");
         for (var i in d) {
           try {
-            this.onstdout(this.runId, d[i], true);
+            this.onstdout(this.runId, d[i].replaceAll("\r", ""), true);
           } catch (e) {
             this.error("Error in steam stdout {e}", {e: e != null ? e.code || e.message || e : e,stack: e != null ? e.stack : e});
           }
@@ -2016,10 +2029,15 @@ class NVLA extends EventEmitter {
   /** @type number */
   memory;
 
+  /** @type number */
+  totalMemory;
+
   /** @type boolean */
   lowMemory = false;
 
   updateInterval;
+
+  uptime = Date.now();
 
   /** @type boolean */
   stopped = false;
@@ -2144,7 +2162,9 @@ class NVLA extends EventEmitter {
       server.updateCycle();
     });
     this.cpu = await getCPUPercent();
-    this.memory = Math.round((1-osAlt.freememPercentage())*100);
+    this.memory = (osAlt.totalmem()-osAlt.freemem())*1000000;
+    this.totalMemory = osAlt.totalmem()*1000000;
+    if (this.vega != null && this.vega.connected) this.vega.client.sendMessage(new mt.machineStatus(this.vega));
   }
 
   async stop() {
@@ -2253,6 +2273,7 @@ class Vega {
    */
   constructor(main) {
     this.main = main;
+    this.main.on("serverStateChange", this.serverStateChange.bind(this));
     this.logger = main.logger.child({ type: this });
     this.config = main.config;
     this.messageHandler = new messageHandler(this, module.exports);
@@ -2277,6 +2298,13 @@ class Vega {
     obj.type = this;
     obj.machineId = this.main.config.vega.id;
     this.logger.verbose(arg, obj, meta);
+  }
+
+  /**
+   * @param {Server} server 
+   */
+  serverStateChange (server) {
+    this.client.sendMessage(new mt.serverStateUpdate(server));
   }
 
   async connect() {
@@ -2321,12 +2349,7 @@ class Vega {
 
   async onAuthenticated() {
     this.connected = true;
-    try {
-      //let data = await this.getFile("customAssembly", "Assembly-CSharp");
-      //console.log("Got file:", data);
-    } catch (e) {
-      console.log("Error getting file: " + e);
-    }
+    this.client.sendMessage(new mt.servers(this));
   }
 
   /**
@@ -2426,4 +2449,5 @@ module.exports = {
   File: File,
   seqSettings: seqSettings,
   joinPaths: joinPaths,
+  serverState: serverState
 };

@@ -26,7 +26,8 @@
     "tar-fs": "^2.1.1",
     "win-version-info": "^6.0.1",
     "winston": "^3.8.2",
-    "winston-daily-rotate-file": "^4.7.1"
+    "winston-daily-rotate-file": "^4.7.1",
+    "ws": "^8.13.0"
   },
   "bin": {
     "NotVeryLocalAdmin": "./index.js"
