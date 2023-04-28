@@ -344,6 +344,29 @@ class machineStatus {
     }
 }
 
+class serverConsoleLog { 
+    type = "serverConsoleLog";
+
+    /** @type string */
+    serverId;
+
+    /** @type string */
+    log;
+
+    /** @type number */
+    color;
+
+    /** @type number */
+    stamp;
+
+    constructor (serverId, log, color) {
+        this.serverId = serverId;
+        this.log = log;
+        this.color = color;
+        this.stamp = Date.now();
+    }
+}
+
 module.exports = {
     pong: pong,
     auth: auth,
@@ -357,5 +380,6 @@ module.exports = {
     removeFile: removeFile,
     servers: servers,
     serverStateUpdate: serverStateUpdate,
-    machineStatus: machineStatus
+    machineStatus: machineStatus,
+    serverConsoleLog: serverConsoleLog
 }

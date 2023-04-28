@@ -954,6 +954,230 @@ class deleteFile extends messageType {
 }
 classes.set(deleteFile.name, deleteFile);
 
+class consoleCommand extends messageType {
+    /** @type {string} Server id*/
+    serverid;
+
+    /** @type {string} command */
+    command;
+
+    /**
+     * @param main {messageHandler}
+     * @param obj {object} */
+    constructor(main, obj) {
+        super(main, obj);
+        if (obj.serverid == null || obj.serverid == undefined) throw "type 'consoleCommand' requires 'serverid'";
+        if (obj.command == null || obj.command == undefined) throw "type 'consoleCommand' requires 'command'";
+        this.serverid = obj.serverid;
+        this.command = obj.command;
+    }
+
+    /** 
+     * @param {import("./socket")["Client"]["prototype"]} s */
+     async execute(s) {
+        if (this.main.ServerManager.servers.has(this.serverid)) {
+            let server = this.main.ServerManager.servers.get(this.serverid);
+            server.log("Executing console command: {command}", { command: this.command });
+            try {
+                server.command(this.command);
+            } catch (e) {
+                server.error("Failed to execute console command: {e}", {e: e != null ? e.code || e.message : e, stack: e != null ? e.stack : e});
+                return;
+            }
+        }
+    }
+}
+classes.set(consoleCommand.name, consoleCommand);
+
+class stopServer extends messageType {
+    /** @type {string} Server id*/
+    serverid;
+
+    /**
+     * @param main {messageHandler}
+     * @param obj {object} */
+    constructor(main, obj) {
+        super(main, obj);
+        if (obj.serverid == null || obj.serverid == undefined) throw "type 'stopServer' requires 'serverid'";
+        this.serverid = obj.serverid;
+    }
+
+    /** 
+     * @param {import("./socket")["Client"]["prototype"]} s */
+     async execute(s) {
+        if (this.main.ServerManager.servers.has(this.serverid)) {
+            let server = this.main.ServerManager.servers.get(this.serverid);
+            server.log("Web shutting down server");
+            try {
+                server.stop(false, false);
+            } catch (e) {
+                server.error("Failed to shutdown server: {e}", {e: e != null ? e.code || e.message : e, stack: e != null ? e.stack : e});
+                return;
+            }
+        }
+    }
+}
+classes.set(stopServer.name, stopServer);
+
+class forceStopServer extends messageType {
+    /** @type {string} Server id*/
+    serverid;
+
+    /** @type {boolean} use kill*/
+    kill;
+
+    /**
+     * @param main {messageHandler}
+     * @param obj {object} */
+    constructor(main, obj) {
+        super(main, obj);
+        if (obj.serverid == null || obj.serverid == undefined) throw "type 'forceStopServer' requires 'serverid'";
+        if (obj.kill == null || obj.kill == undefined) throw "type 'forceStopServer' requires 'kill'";
+        this.serverid = obj.serverid;
+        this.kill = obj.kill;
+    }
+
+    /** 
+     * @param {import("./socket")["Client"]["prototype"]} s */
+     async execute(s) {
+        if (this.main.ServerManager.servers.has(this.serverid)) {
+            let server = this.main.ServerManager.servers.get(this.serverid);
+            server.log("Web force shutting down server");
+            try {
+                server.stop(true, this.kill);
+            } catch (e) {
+                server.error("Failed to force shut down server: {e}", {e: e != null ? e.code || e.message : e, stack: e != null ? e.stack : e});
+                return;
+            }
+        }
+    }
+}
+classes.set(forceStopServer.name, forceStopServer);
+
+class restartServer extends messageType {
+    /** @type {string} Server id*/
+    serverid;
+
+    /**
+     * @param main {messageHandler}
+     * @param obj {object} */
+    constructor(main, obj) {
+        super(main, obj);
+        if (obj.serverid == null || obj.serverid == undefined) throw "type 'restartServer' requires 'serverid'";
+        this.serverid = obj.serverid;
+    }
+
+    /** 
+     * @param {import("./socket")["Client"]["prototype"]} s */
+     async execute(s) {
+        if (this.main.ServerManager.servers.has(this.serverid)) {
+            let server = this.main.ServerManager.servers.get(this.serverid);
+            server.log("Web restarting server");
+            try {
+                server.restart(false, false);
+            } catch (e) {
+                server.error("Failed to restart server: {e}", {e: e != null ? e.code || e.message : e, stack: e != null ? e.stack : e});
+                return;
+            }
+        }
+    }
+}
+classes.set(restartServer.name, restartServer);
+
+class forceRestartServer extends messageType {
+    /** @type {string} Server id*/
+    serverid;
+
+    /** @type {boolean} use kill*/
+    kill;
+
+    /**
+     * @param main {messageHandler}
+     * @param obj {object} */
+    constructor(main, obj) {
+        super(main, obj);
+        if (obj.serverid == null || obj.serverid == undefined) throw "type 'forceRestartServer' requires 'serverid'";
+        if (obj.kill == null || obj.kill == undefined) throw "type 'forceRestartServer' requires 'kill'";
+        this.serverid = obj.serverid;
+        this.kill = obj.kill;
+    }
+
+    /** 
+     * @param {import("./socket")["Client"]["prototype"]} s */
+     async execute(s) {
+        if (this.main.ServerManager.servers.has(this.serverid)) {
+            let server = this.main.ServerManager.servers.get(this.serverid);
+            server.log("Web force restarting server");
+            try {
+                server.restart(true, this.kill);
+            } catch (e) {
+                server.error("Failed to force restart server: {e}", {e: e != null ? e.code || e.message : e, stack: e != null ? e.stack : e});
+                return;
+            }
+        }
+    }
+}
+classes.set(forceRestartServer.name, forceRestartServer);
+
+class startServer extends messageType {
+    /** @type {string} Server id*/
+    serverid;
+
+    /**
+     * @param main {messageHandler}
+     * @param obj {object} */
+    constructor(main, obj) {
+        super(main, obj);
+        if (obj.serverid == null || obj.serverid == undefined) throw "type 'startServer' requires 'serverid'";
+        this.serverid = obj.serverid;
+    }
+
+    /** 
+     * @param {import("./socket")["Client"]["prototype"]} s */
+     async execute(s) {
+        if (this.main.ServerManager.servers.has(this.serverid)) {
+            let server = this.main.ServerManager.servers.get(this.serverid);
+            server.log("Web starting server");
+            try {
+                server.start();
+            } catch (e) {
+                server.error("Failed to start server: {e}", {e: e != null ? e.code || e.message : e, stack: e != null ? e.stack : e});
+                return;
+            }
+        }
+    }
+}
+classes.set(startServer.name, startServer);
+
+class cancelServerOperation extends messageType {
+    /** @type {string} Server id*/
+    serverid;
+
+    /**
+     * @param main {messageHandler}
+     * @param obj {object} */
+    constructor(main, obj) {
+        super(main, obj);
+        if (obj.serverid == null || obj.serverid == undefined) throw "type 'cancelServerOperation' requires 'serverid'";
+        this.serverid = obj.serverid;
+    }
+
+    /** 
+     * @param {import("./socket")["Client"]["prototype"]} s */
+     async execute(s) {
+        if (this.main.ServerManager.servers.has(this.serverid)) {
+            let server = this.main.ServerManager.servers.get(this.serverid);
+            server.log("Web canceling server operation");
+            try {
+                server.cancelDelayedAction();
+            } catch (e) {
+                server.error("Failed to cancel server operation: {e}", {e: e != null ? e.code || e.message : e, stack: e != null ? e.stack : e});
+                return;
+            }
+        }
+    }
+}
+classes.set(cancelServerOperation.name, cancelServerOperation);
 
 class messageHandler {
     /** @type {import("./classes")["NVLA"]["prototype"]} */

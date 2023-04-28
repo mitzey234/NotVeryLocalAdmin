@@ -521,6 +521,8 @@ class ServerConfig {
   /** @type number */
   maximumRestartTime = 60;
 
+  cleanLogs = true;
+
 }
 
 class restartTime {
@@ -1317,6 +1319,7 @@ class Server {
       this.error("Server is unresponsive, restarting", null, {color: 4});
       this.restart(true, true);
     } else {
+      clearTimeout(this.monitorTimeout);
       this.monitorTimeout = setTimeout(this.monitorUpdateTimeout.bind(this), this.idleMode ? 60000*5 : 8000);
     }
   }
@@ -1349,6 +1352,14 @@ class Server {
     this.log("Server Process Exited with {code} - {signal}", { code: code, signal: signal }, { color: 4 });
     this.socketServer.close();
     this.socketServer = null;
+    if (this.monitorTimeout != null) {
+      clearTimeout(this.monitorTimeout);
+      this.monitorTimeout = null;
+    }
+    if (this.playerlistTimeout != null) {
+      clearTimeout(this.playerlistTimeout);
+      this.playerlistTimeout = null;
+    }
     this.process = null;
     this.players = null;
     this.uptime = null;
@@ -1396,6 +1407,7 @@ class Server {
         if (d[i].indexOf("A scripted object") > -1 && d[i].indexOf("has a different serialization layout when loading.") > -1) cleanup = true;
         if (d[i].indexOf("Did you #ifdef UNITY_EDITOR a section of your serialized properties in any of your scripts?") > -1) cleanup = true;
         if (d[i].indexOf("Action name") > -1 && d[i].indexOf("is not defined") > -1) cleanup = true;
+        if (cleanup == true && this.config.cleanLogs);
         this.verbose(d[i], { logType: "sdtout", cleanup: cleanup }, { color: 8 });
       }
   }
@@ -1421,6 +1433,7 @@ class Server {
       if (d[i].indexOf("A scripted object") > -1 && d[i].indexOf("has a different serialization layout when loading.") > -1) cleanup = true;
       if (d[i].indexOf("Did you #ifdef UNITY_EDITOR a section of your serialized properties in any of your scripts?") > -1) cleanup = true;
       if (d[i].indexOf("Action name") > -1 && d[i].indexOf("is not defined") > -1) cleanup = true;
+      if (cleanup == true && this.config.cleanLogs);
       this.error(d[i], { logType: "sdtout", cleanup: cleanup }, { color: 8 });
     }
   }
@@ -1438,7 +1451,7 @@ class Server {
         this.updateCycle();
       }
       this.roundStartTime = null;
-    } else if (code == 21) {
+    } else if (code == 21 || code == 20) {
       this.state.stopping = true;
       this.state.delayedStop = true;
       this.stateUpdate();
@@ -1451,7 +1464,7 @@ class Server {
         this.state.delayedRestart = false;
         this.state.restarting = false;
       } else if (this.state.delayedStop) {
-        this.state.stopping = true;
+        this.state.stopping = false;
         this.state.delayedStop = false;
       }
       this.stateUpdate();
@@ -1504,6 +1517,7 @@ class Server {
         else if (this.tempListOfPlayersCatcher) delete this.tempListOfPlayersCatcher;
         if (message.charAt(0) == "\n") message = message.substring(1,message.length);
         if (message.indexOf("Welcome to") > -1 && message.length > 1000) message = colors[code]("Welcome to EXILED (ASCII Cleaned to save your logs)");
+        this.main.vega.client.sendMessage(new mt.serverConsoleLog(this.config.id, message.replace(ansiStripRegex, "").trim(), code));
         this.log(message.trim(), { logType: "console" }, { color: code });
       }
     }
@@ -1535,6 +1549,7 @@ class Server {
   command (command) {
     if (this.socket == null) return -1;
     command = command.trim();
+    if (this.main.vega.connected) this.main.vega.client.sendMessage(new mt.serverConsoleLog(this.config.id, "> "+command, 3));
     this.socket.write(Buffer.concat([toInt32(command.length), Buffer.from(command)]));
   }
 
@@ -1600,13 +1615,15 @@ class Server {
 
   stop(forced, kill = false) {
     if (this.process == null) return -1; //Server process not active
-    if (this.state.stopping) return -2; //Server already stopping
+    if (this.state.stopping && !forced) return -2; //Server already stopping
     this.state.stopping = true;
     this.stateUpdate();
     this.log((forced ? "Force " : "") + "Stopping server {label}", {label: this.config.label}, {color: 6});
     if (forced && kill) return this.process.kill();
     if (forced || this.players.length == 0) {
       this.command("stop");
+      this.state.delayedStop = false;
+      this.stateUpdate();
       this.timeout = setTimeout(this.stopTimeout.bind(this), 1000*this.config.maximumShutdownTime);
       return;
     } else {
@@ -1626,7 +1643,7 @@ class Server {
   restart(forced, kill = false) {
     if (this.state.stopping) return -2; //Server stopping
     if (this.state.starting) return -3; //Server restarting
-    if (this.state.restarting) return -4; //Server restarting
+    if (this.state.restarting && !forced) return -4; //Server restarting
     if (this.state.uninstalling) return -5; //Server uninstalling
     if (this.process == null) return this.start();
     this.state.restarting = true;
@@ -1635,6 +1652,8 @@ class Server {
     if (forced && kill) return this.process.kill();
     if (forced || this.players.length == 0) {
       this.command("softrestart");
+      this.state.delayedRestart = false;
+      this.stateUpdate();
       this.timeout = setTimeout(this.restartTimeout.bind(this), 1000*this.config.maximumRestartTime);
       return;
     } else {
@@ -1652,6 +1671,7 @@ class Server {
   }
 
   cancelDelayedAction () {
+    //requires support for canceling installs and updates
     if (this.state.delayedRestart == false && this.state.delayedStop == false) return;
     if (this.state.delayedRestart) this.command("rnr");
     if (this.state.delayedStop) this.command("snr");
