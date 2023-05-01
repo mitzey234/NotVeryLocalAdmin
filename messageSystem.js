@@ -1179,6 +1179,31 @@ class cancelServerOperation extends messageType {
 }
 classes.set(cancelServerOperation.name, cancelServerOperation);
 
+class clearErrorState extends messageType {
+    /** @type {string} Server id*/
+    serverid;
+
+    /**
+     * @param main {messageHandler}
+     * @param obj {object} */
+    constructor(main, obj) {
+        super(main, obj);
+        if (obj.serverid == null || obj.serverid == undefined) throw "type 'clearErrorState' requires 'serverid'";
+        this.serverid = obj.serverid;
+    }
+
+    /** 
+     * @param {import("./socket")["Client"]["prototype"]} s */
+     async execute(s) {
+        if (this.main.ServerManager.servers.has(this.serverid)) {
+            let server = this.main.ServerManager.servers.get(this.serverid);
+            server.log("Clearing error state");
+            server.errorState = null;
+        }
+    }
+}
+classes.set(clearErrorState.name, clearErrorState);
+
 class messageHandler {
     /** @type {import("./classes")["NVLA"]["prototype"]} */
     main;
