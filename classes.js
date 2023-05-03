@@ -544,6 +544,7 @@ class serverState {
   running = false;
   delayedRestart = false;
   delayedStop = false;
+  idleMode = false;
 }
 
 class Server {
@@ -645,9 +646,6 @@ class Server {
   monitorTimeout;
 
   playerlistTimeoutCount = 0;
-
-  /** @type boolean */
-  idleMode = false;
 
   /** @type number */
   percent;
@@ -1309,7 +1307,7 @@ class Server {
     this.players = data.players;
     clearTimeout(this.monitorTimeout);
     this.playerlistTimeoutCount = 0;
-    this.monitorTimeout = setTimeout(this.monitorUpdateTimeout.bind(this), this.idleMode ? 60000*5 : 8000);
+    this.monitorTimeout = setTimeout(this.monitorUpdateTimeout.bind(this), this.state.idleMode ? 60000*5 : 8000);
     return;
   }
 
@@ -1322,7 +1320,7 @@ class Server {
       this.restart(true, true);
     } else {
       clearTimeout(this.monitorTimeout);
-      this.monitorTimeout = setTimeout(this.monitorUpdateTimeout.bind(this), this.idleMode ? 60000*5 : 8000);
+      this.monitorTimeout = setTimeout(this.monitorUpdateTimeout.bind(this), this.state.idleMode ? 60000*5 : 8000);
     }
   }
 
@@ -1375,7 +1373,7 @@ class Server {
     }
     this.state.delayedRestart = false;
     this.state.delayedStop = false;
-    this.idleMode = false;
+    this.state.idleMode = false;
     this.memory = null;
     this.checkInProgress = false;
     clearTimeout(this.playerlistTimeout);
@@ -1473,14 +1471,14 @@ class Server {
       }
       this.stateUpdate();
     } else if (code == 17) {
-      this.idleMode = true;
+      this.state.idleMode = true;
       this.stateUpdate();
       if (this.nvlaMonitorInstalled) {
         clearTimeout(this.monitorTimeout);
         this.monitorTimeout = setTimeout(this.monitorUpdateTimeout.bind(this), 60000*5);  
       }
     } else if (code == 18) {
-      this.idleMode = false;
+      this.state.idleMode = false;
       this.stateUpdate();
       if (this.nvlaMonitorInstalled) {
         clearTimeout(this.monitorTimeout);
@@ -1571,7 +1569,7 @@ class Server {
     this.checkInProgress = false;
     this.playerlistCallback = null;
     this.playerlistTimeout = null;
-    this.idleMode = false;
+    this.state.idleMode = false;
     this.stateUpdate();
     this.playerlistTimeoutCount = 0;
     try {
@@ -2028,6 +2026,49 @@ class ServerManager extends EventEmitter {
 
 }
 
+class addresses {
+  public;
+
+  /** @type Array<String> */
+  local = [];
+
+  constructor () {
+      this.public = null;
+      this.local = [];
+      const nets = os.networkInterfaces();
+      for (let i in nets) {
+          let intf = nets[i];
+          for (let x in intf) {
+            let net = intf[x];
+            const familyV4Value = typeof net.family === 'string' ? 'IPv4' : 4
+            if (net.family === familyV4Value && !net.internal) this.local.push(net.address);
+          }
+      }
+  }
+
+  async populatePublic () {
+      try {
+          this.public = await axios({
+              method: "get",
+              url: 'https://api.ipify.org/',
+              timeout: 2000
+          });
+          this.public = this.public.data;
+          return true;
+      } catch (e) {
+          this.public = null;
+          return false;
+      }
+  }
+
+  trim () {
+      let o = {};
+      o.public = this.public;
+      o.local = this.local;
+      return o;
+  }
+}
+
 class NVLA extends EventEmitter {
   /** @type steam */
   steam;
@@ -2065,6 +2106,9 @@ class NVLA extends EventEmitter {
 
   /** @type boolean */
   stopped = false;
+
+  /** @type boolean */
+  updateInProgress = false;
 
   constructor() {
     super();
@@ -2154,41 +2198,49 @@ class NVLA extends EventEmitter {
   }
 
   async update () {
-
-    this.checkMemory();
-    
-    let pids = [];
-    this.ServerManager.servers.forEach((server) => (server.process != null && server.process.pid != null) ? pids.push(server.process.pid) : null);
-    if (pids.length > 0) {
-      pidusage(pids, function (e, stats) {
-        if (e) {
-          this.verbose("Failed to get server process usage: {e}", { e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e });
-          return;
-        }
-        for (i in stats) {
-          let stat = stats[i];
-          let server;
-          this.ServerManager.servers.forEach((s) => {
-            if (s.process == null || s.process.pid == null) return;
-            if (s.process.pid == i) {
-              server = s
-              return;
-            }  
-          });
-          if (server == null) continue;
-          server.cpu = stat.cpu/(100*osAlt.cpuCount());
-          server.memory = stat.memory;
-        }
-      }.bind(this));
+    if (this.updateInProgress) return;
+    this.updateInProgress = true;
+    try {
+      this.checkMemory();
+      
+      let pids = [];
+      this.ServerManager.servers.forEach((server) => (server.process != null && server.process.pid != null) ? pids.push(server.process.pid) : null);
+      if (pids.length > 0) {
+        pidusage(pids, function (e, stats) {
+          if (e) {
+            this.verbose("Failed to get server process usage: {e}", { e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e });
+            return;
+          }
+          for (i in stats) {
+            let stat = stats[i];
+            let server;
+            this.ServerManager.servers.forEach((s) => {
+              if (s.process == null || s.process.pid == null) return;
+              if (s.process.pid == i) {
+                server = s
+                return;
+              }  
+            });
+            if (server == null) continue;
+            server.cpu = stat.cpu/(100*osAlt.cpuCount());
+            server.memory = stat.memory;
+          }
+        }.bind(this));
+      }
+      
+      this.ServerManager.servers.forEach(async (server) => {
+        server.updateCycle();
+      });
+      this.cpu = await getCPUPercent();
+      this.memory = (osAlt.totalmem()-osAlt.freemem())*1000000;
+      this.totalMemory = osAlt.totalmem()*1000000;
+      this.network = new addresses();
+      await this.network.populatePublic();
+      if (this.vega != null && this.vega.connected) this.vega.client.sendMessage(new mt.machineStatus(this.vega));
+    } catch (e) {
+      this.error("Failed to cycle update: {e}", { e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e });
     }
-    
-    this.ServerManager.servers.forEach(async (server) => {
-      server.updateCycle();
-    });
-    this.cpu = await getCPUPercent();
-    this.memory = (osAlt.totalmem()-osAlt.freemem())*1000000;
-    this.totalMemory = osAlt.totalmem()*1000000;
-    if (this.vega != null && this.vega.connected) this.vega.client.sendMessage(new mt.machineStatus(this.vega));
+    this.updateInProgress = false;
   }
 
   async stop() {
@@ -2473,5 +2525,6 @@ module.exports = {
   File: File,
   seqSettings: seqSettings,
   joinPaths: joinPaths,
-  serverState: serverState
+  serverState: serverState,
+  addresses: addresses,
 };

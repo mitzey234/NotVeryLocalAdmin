@@ -296,6 +296,8 @@ class serverStateUpdate {
     /** @type number */
     round;
 
+    updatePending;
+
     /**
      * @param {import("./classes")["Server"]["prototype"]} server
      */
@@ -310,6 +312,7 @@ class serverStateUpdate {
         this.memory = server.memory || null;
         this.uptime = server.uptime || null;
         this.round = server.roundStartTime || null;
+        this.updatePending = server.updatePending || null;
     }
 }
 
@@ -331,6 +334,9 @@ class machineStatus {
     /** @type number */
     totalMemory;
 
+    /** @type import("./classes")["addresses"]["prototype"] */
+    network;
+
 
     /**
     * @param {import("./classes")["NVLA"]["prototype"]["vega"]} vega
@@ -341,6 +347,7 @@ class machineStatus {
         this.totalMemory = vega.main.totalMemory;
         this.lowMemory = vega.main.lowMemory;
         this.uptime = Date.now() - vega.main.uptime;
+        this.network = vega.main.network.trim();
     }
 }
 
