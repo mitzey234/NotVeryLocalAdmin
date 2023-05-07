@@ -19,6 +19,7 @@ const util = require("util");
 const Stream = require('stream');
 const osAlt = require('os-utils');
 const os = require('os');
+const udp = require('dgram');
 
 function getCPUPercent () {
     return new Promise((resolve, reject) => {
@@ -365,6 +366,12 @@ class settings {
 
   /** @type logSettings */
   logSettings;
+
+  /** @type number */
+  echoServerPort = 5050;
+
+  /** @type string */
+  echoServerAddress = "0.0.0.0";
 
   level = "info";
 
@@ -2032,26 +2039,30 @@ class addresses {
   /** @type Array<String> */
   local = [];
 
-  constructor () {
+  port;
+
+  constructor (port) {
+      this.port = port;
       this.public = null;
       this.local = [];
+  }
+
+  async populate () {
       const nets = os.networkInterfaces();
+      this.local = [];
       for (let i in nets) {
           let intf = nets[i];
           for (let x in intf) {
             let net = intf[x];
             const familyV4Value = typeof net.family === 'string' ? 'IPv4' : 4
-            if (net.family === familyV4Value && !net.internal) this.local.push(net.address);
+            if (net.family === familyV4Value && !net.internal && !this.local.includes(net.address)) this.local.push(net.address);
           }
       }
-  }
-
-  async populatePublic () {
       try {
           this.public = await axios({
               method: "get",
               url: 'https://api.ipify.org/',
-              timeout: 2000
+              timeout: 10000
           });
           this.public = this.public.data;
           return true;
@@ -2065,6 +2076,7 @@ class addresses {
       let o = {};
       o.public = this.public;
       o.local = this.local;
+      o.port = this.port;
       return o;
   }
 }
@@ -2109,6 +2121,9 @@ class NVLA extends EventEmitter {
 
   /** @type boolean */
   updateInProgress = false;
+
+  /** @type import("dgram")["Socket"]["prototype"] */
+  echoServer;
 
   constructor() {
     super();
@@ -2157,6 +2172,8 @@ class NVLA extends EventEmitter {
     this.alternative = new winstonLogger(this, this.config.seq);
 
     this.logger.exitOnError = false;
+
+    this.network = new addresses(this.config.echoServerPort);
 
     this.updateInterval = setInterval(this.update.bind(this), 1000);
   }
@@ -2234,13 +2251,16 @@ class NVLA extends EventEmitter {
       this.cpu = await getCPUPercent();
       this.memory = (osAlt.totalmem()-osAlt.freemem())*1000000;
       this.totalMemory = osAlt.totalmem()*1000000;
-      this.network = new addresses();
-      await this.network.populatePublic();
+      this.updateNetwork();
       if (this.vega != null && this.vega.connected) this.vega.client.sendMessage(new mt.machineStatus(this.vega));
     } catch (e) {
       this.error("Failed to cycle update: {e}", { e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e });
     }
     this.updateInProgress = false;
+  }
+
+  async updateNetwork () {
+    await this.network.populate();
   }
 
   async stop() {
@@ -2276,6 +2296,26 @@ class NVLA extends EventEmitter {
     this.log("Steam ready", null, { color: "blue" });
     this.vega = new Vega(this);
     this.vega.connect();
+    this.echoServer = udp.createSocket('udp4');
+    this.echoServer.on('error', this.echoServerError.bind(this));
+    this.echoServer.on('message', this.echoServerMessage.bind(this));
+    this.echoServer.bind(this.config.echoServerPort, this.config.echoServerAddress);
+  }
+
+  /**
+   * @param {Buffer} msg 
+   * @param {udp.RemoteInfo} rinfo 
+   */
+  echoServerMessage (msg, rinfo) {
+    try {
+      this.echoServer.send("1", rinfo.port, rinfo.address);
+    } catch (e) {
+      this.error("Echo server response error: {e}", { e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e });
+    }
+  }
+
+  echoServerError (e) {
+    this.error("Echo server error: {e}", { e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e });
   }
 
   test () {
