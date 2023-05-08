@@ -2,14 +2,13 @@
 <Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
   <ItemGroup>
-    <Reference Include="0Harmony" HintPath="$(BRIGHTS_REFERENCES)\0Harmony.dll" Private="false" />
     <Reference Include="Assembly-CSharp-firstpass" HintPath="$(BRIGHTS_REFERENCES)\Assembly-CSharp-firstpass.dll" Private="false" />
     <Reference Include="Assembly-CSharp-Publicized">
       <HintPath>..\..\PluginReferences\References\Assembly-CSharp-Publicized.dll</HintPath>
     </Reference>
     <Reference Include="PluginAPI-Publicized, Version=12.0.0.0, Culture=neutral, processorArchitecture=AMD64">
       <SpecificVersion>False</SpecificVersion>
-      <HintPath>..\..\PluginReferences\References\PluginAPI-Publicized.dll</HintPath>
+      <HintPath>..\..\..\PluginReferences\References\PluginAPI-Publicized.dll</HintPath>
     </Reference>
     <Reference Include="UnityEngine.AudioModule">
       <HintPath>A:\SteamLibrary\SteamApps\common\SCP Secret Laboratory Dedicated Server\SCPSL_Data\Managed\UnityEngine.AudioModule.dll</HintPath>
@@ -17,7 +16,6 @@
     <Reference Include="UnityEngine.InputLegacyModule">
       <HintPath>A:\SteamLibrary\SteamApps\common\SCP Secret Laboratory Dedicated Server\SCPSL_Data\Managed\UnityEngine.InputLegacyModule.dll</HintPath>
     </Reference>
-    <Reference Include="YamlDotNet" HintPath="$(BRIGHTS_REFERENCES)\YamlDotNet.dll" Private="false" />
     <Reference Include="UnityEngine" HintPath="$(BRIGHTS_REFERENCES)\UnityEngine.dll" Private="false" />
     <Reference Include="UnityEngine.AnimationModule" HintPath="$(BRIGHTS_REFERENCES)\UnityEngine.AnimationModule.dll" Private="false" />
     <Reference Include="UnityEngine.CoreModule" HintPath="$(BRIGHTS_REFERENCES)\UnityEngine.CoreModule.dll" Private="false" />
@@ -77,6 +75,5 @@
       <Version>12.0.3</Version>
     </PackageReference>
   </ItemGroup>
-  <ItemGroup />
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>

@@ -1,5 +1,4 @@
-﻿using HarmonyLib;
-using PluginAPI.Core.Attributes;
+﻿using PluginAPI.Core.Attributes;
 using PluginAPI.Events;
 using System;
 using PlayerRoles;

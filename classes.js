@@ -1202,6 +1202,8 @@ class Server {
     } catch (e) {
       this.errorState = "Failed to install server: " + e != null ? e.code || e.message || e : e;
       this.error("Failed to install server: {e}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
+      this.state.installing = false;
+      this.stateUpdate();
       return;
     }
     this.state.installing = false;
@@ -1651,7 +1653,7 @@ class Server {
 
   restart(forced, kill = false) {
     if (this.state.stopping) return -2; //Server stopping
-    if (this.state.starting) return -3; //Server restarting
+    if (this.state.starting && !forced) return -3; //Server restarting
     if (this.state.restarting && !forced) return -4; //Server restarting
     if (this.state.uninstalling) return -5; //Server uninstalling
     if (this.process == null) return this.start();
