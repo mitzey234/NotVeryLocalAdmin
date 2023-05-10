@@ -1204,6 +1204,36 @@ class clearErrorState extends messageType {
 }
 classes.set(clearErrorState.name, clearErrorState);
 
+class updateServer extends messageType {
+    /** @type {string} Server id*/
+    serverid;
+
+    /**
+     * @param main {messageHandler}
+     * @param obj {object} */
+    constructor(main, obj) {
+        super(main, obj);
+        if (obj.serverid == null || obj.serverid == undefined) throw "type 'updateServer' requires 'serverid'";
+        this.serverid = obj.serverid;
+    }
+
+    /** 
+     * @param {import("./socket")["Client"]["prototype"]} s */
+     async execute(s) {
+        if (this.main.ServerManager.servers.has(this.serverid)) {
+            let server = this.main.ServerManager.servers.get(this.serverid);
+            server.log("Web updating server");
+            try {
+                server.update();
+            } catch (e) {
+                server.error("Failed to update server: {e}", {e: e != null ? e.code || e.message : e, stack: e != null ? e.stack : e});
+                return;
+            }
+        }
+    }
+}
+classes.set(updateServer.name, updateServer);
+
 class messageHandler {
     /** @type {import("./classes")["NVLA"]["prototype"]} */
     main;
