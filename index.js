@@ -50,7 +50,7 @@ async function evaluate(args) {
         if (server == null) return console.log("Server not found");
         if (server.process == null) return console.log(server.config.label, "is already stopped");
         server.log("Server Stopped by console");
-        var resp = server.stop();
+        var resp = server.stop(true);
         if (resp != null) return console.log("Stop failed: " + resp);
     } else if (command == "start") {
         if (args[0] == null) return console.log("Usage: start <Server label|UID|Port>");
@@ -92,7 +92,7 @@ async function evaluate(args) {
         NVLA.ServerManager.servers.forEach((server) => server.start());
     } else if (command == "stopAll" || command == "sta") {
         NVLA.log("Console stopped all servers");
-        NVLA.ServerManager.servers.forEach((server) => server.stop(true));
+        NVLA.ServerManager.servers.forEach((server) => server.state.stopping ? server.stop(true, true) : server.stop(true));
     } else if (command == "restartAll" || command == "ra") {
         NVLA.log("Console restarted all servers");
         NVLA.ServerManager.servers.forEach((server) => server.restart());
