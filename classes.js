@@ -676,7 +676,6 @@ class Server {
     this.serverConfigsFolder = path.join(this.serverInstallFolder, "AppData", "config", config.port.toString());
     this.globalDedicatedServerConfigFiles = path.join(this.serverInstallFolder, "AppData", "config", "global");
     this.serverCustomAssembliesFolder = path.join(this.serverInstallFolder, "SCPSL_Data", "Managed");
-
     try {
       if (!fs.existsSync(this.pluginsFolderPath)) fs.mkdirSync(this.pluginsFolderPath, { recursive: true });
       if (!fs.existsSync(this.serverConfigsFolder)) fs.mkdirSync(this.serverConfigsFolder, { recursive: true });
@@ -1217,7 +1216,13 @@ class Server {
     this.disableWatching = true;
     this.log("Uninstalling server {label}", {label: this.config.label});
     await this.stopWatchers();
-    if (this.process != null) await this.stop(true);
+    if (this.process != null) {
+      await new Promise(async function (resolve) {
+        while (this.process != null) await new Promise(r => setTimeout(r, 200));
+        resolve();
+      }.bind(this));
+      this.stop(true);
+    }
     fs.rmSync(this.serverContainer, { recursive: true });
     this.state.uninstalling = false;
     this.stateUpdate();
@@ -1245,7 +1250,7 @@ class Server {
       return;
     }
     try {
-      await this.getCustomAssemblies();
+      await this.configure();
     } catch (e) {
       this.errorState = "Failed to update server: " + e != null ? e.code || e.message || e : e;
       this.error("Failed to get custom assemblies: {e}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
@@ -1374,12 +1379,6 @@ class Server {
     this.uptime = null;
     this.nvlaMonitorInstalled = false;
     this.state.running = false;
-    this.state.stopping = false;
-    if (this.state.starting) {
-      this.error("Server Startup failed, Exited with {code} - {signal}", { code: code, signal: signal });
-      this.errorState = "Server exited during startup, Exited with "+ code +" - "+signal;
-      this.state.starting = false;
-    }
     this.state.delayedRestart = false;
     this.state.delayedStop = false;
     this.state.idleMode = false;
@@ -1394,11 +1393,29 @@ class Server {
       clearTimeout(this.timeout);
       this.timeout = null;
     }
+    if (this.state.stopping) {
+      this.state.stopping = false;
+      this.state.restarting = false;
+      this.state.starting = false;
+      this.stateUpdate();
+      return;
+    }
+    if (this.state.starting) {
+      this.error("Server Startup failed, Exited with {code} - {signal}", { code: code, signal: signal });
+      this.errorState = "Server exited during startup, Exited with "+ code +" - "+signal;
+      this.state.starting = false;
+      this.stateUpdate();
+      return;
+    }
     if (this.state.restarting) {
       this.log("Server Restarting", null, { color: 2 });
       this.state.restarting = false;
       this.start();
+      this.stateUpdate();
+      return;
     }
+    this.error("Unexpected server death, Exited with {code} - {signal}", { code: code, signal: signal });
+    this.start();
     this.stateUpdate();
   }
 
@@ -1579,6 +1596,7 @@ class Server {
     this.playerlistCallback = null;
     this.playerlistTimeout = null;
     this.state.idleMode = false;
+    this.updatePending = false;
     this.stateUpdate();
     this.playerlistTimeoutCount = 0;
     try {
@@ -1631,7 +1649,14 @@ class Server {
     this.stateUpdate();
     this.log((forced ? "Force " : "") + "Stopping server {label}", {label: this.config.label}, {color: 6});
     if (forced && kill) return this.process.kill();
-    if (forced || this.players.length == 0) {
+    if (this.state.starting) {
+      this.command("stop");
+      this.state.delayedStop = false;
+      this.stateUpdate();
+      this.timeout = setTimeout(this.stopTimeout.bind(this), 1000*this.config.maximumShutdownTime);
+      return;
+    }
+    if (forced || (this.players != null && this.players.length == 0)) {
       this.command("stop");
       this.state.delayedStop = false;
       this.stateUpdate();
@@ -1838,10 +1863,10 @@ class steam extends EventEmitter {
 
   async run(params) {
     this.verbose("Steam binary path: {path}", { path: this.binaryPath }, { color: 6 });
-    this.activeProcess = pty.spawn(process.platform === "win32" ? "powershell.exe" : "bash", [], {cwd: path.parse(this.binaryPath).dir, env: process.env});
+    this.activeProcess = pty.spawn(process.platform === "win32" ? "powershell.exe" : "bash", [], {cwd: path.parse(this.binaryPath).dir, env: process.platform == "linux" ? Object.assign({LD_LIBRARY_PATH: path.parse(this.binaryPath).dir}, process.env) : process.env});
     
     let proc = this.activeProcess;
-
+    
     proc.write((process.platform == "darwin" ? this.binaryPath : "./"+path.parse(this.binaryPath).base) + " " + params.join(" ") + "\r");
     proc.write(process.platform === "win32" ? "exit $LASTEXITCODE\r" : "exit $?\r");
 
