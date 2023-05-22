@@ -28,12 +28,12 @@ module.exports = class pingSystem {
         if (this.inProgress) return;
         this.inProgress = true;
         this.sendMethod({type: "ping"});
-        this.timeout = setTimeout(this.timeoutMethod.bind(this), 5000);
+        this.timeout = setTimeout(this.timeoutMethod.bind(this), 7000);
     }
 
     timeoutMethod () {
         this.failures++;
-        if (this.failures >= 3) {
+        if (this.failures >= 6) {
             this.pingHostDeathMethod();
             clearInterval(this.interval);
         }

@@ -1,5 +1,7 @@
 # NotVeryLocalAdmin
 
+(ENSURE you use `sudo apt-get install lib32gcc-s1` to install needed steam deps on linux)
+
 NotVeryLocalAdmin is a free to use server manager for SCP Secret Laboratory dedicated servers. It's built to replace LocalAdmin which ships with the dedicated server as a launcher and TCP listening server. The purpose of this project is to do almost everything LocalAdmin does but with extra features for babysitting your server(s).
 
 NotVeryLocalAdmin supports daily restarts of which you can specify what time of day (locally) to restart all servers. It also features a memory check function which can check your systems free memory and restart your servers gracefully (either using restartnextround or using silentrestart) in the event there is a memory leak. It will also warn you if your memory usage is too high.

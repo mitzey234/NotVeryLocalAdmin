@@ -35,7 +35,7 @@ function onMessage (m) {
             transports: transports,
         });
         process.send({type: "ready"});
-    } else if (m.type == "log") {
+    } else if (m.type == "log" && logger != null) {
         if (m.data.level == "info") logger.info("", {replacementData: m.data});
         else if (m.data.level == "verbose") logger.verbose("", {replacementData: m.data});
         else if (m.data.level == "error") logger.error("", {replacementData: m.data});
