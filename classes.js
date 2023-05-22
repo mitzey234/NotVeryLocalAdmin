@@ -31,6 +31,7 @@ function getCPUPercent () {
 
 var defaultSteamPath = [__dirname, "steam"];
 var defaultServersPath = [__dirname, "servers"];
+var verkeyPath;
 
 const ansiStripRegexPattern = [
   "[\\u001B\\u009B][[\\]()#;?]*(?:(?:(?:(?:;[-a-zA-Z\\d\\/#&.:=?%@~_]+)*|[a-zA-Z\\d]+(?:;[-a-zA-Z\\d\\/#&.:=?%@~_]*)*)?\\u0007)",
@@ -257,6 +258,7 @@ class winstonLogger {
   }
 
   async log (args) {
+    if (this.errored) return;
     try {
       if (this.process != null && this.process.exitCode == null && !this.stopping) this.process.send({ type: "log", data: args });
     } catch (e) {
@@ -274,8 +276,8 @@ class winstonLogger {
     this.promise = new Promise(this.handlePromise.bind(this));
     this.timeout = setTimeout(this.reject.bind(this, "Fork timed out"), 10000);
     this.errored = false;
-    this.writableStream = new Stream.Writable();
-    this.writableStream._write = (chunk, encoding, next) => next();
+    this.writableStream = new Stream.Writable(); //null pipe
+    this.writableStream._write = (chunk, encoding, next) => next(); //null pipe
 
     this.transport = new winston.transports.Stream({
       level: "verbose",
@@ -289,8 +291,6 @@ class winstonLogger {
       }.bind(this.main)),
       stream: this.writableStream
     });
-    this.transport
-    this.main.logger.add(this.transport);
     return this.promise;
   }
 
@@ -313,6 +313,7 @@ class winstonLogger {
       this.process.send({ type: "config", settings: this.settings });
     } else if (msg.type == "ready") {
       this.main.log("Winston Logger ready", null, {color: 2});
+      this.main.logger.add(this.transport);
       clearTimeout(this.timeout);
       this.timeout = null;
       this.resolve();
@@ -322,6 +323,8 @@ class winstonLogger {
   }
 
   onError (err) {
+    this.errored = true;
+    if (this.process.killed) this.process = null;
     this.main.error("Winston Logger error: {err}", { err: err.code || err.message, stack: err.stack });
     if (this.reject != null) {
       this.reject("Winston Logger error\n", err);
@@ -375,6 +378,8 @@ class settings {
 
   level = "info";
 
+  verkey = null;
+
   constructor() {
     if (!fs.existsSync(path.join(__dirname, "config.json"))) fs.writeFileSync(path.join(__dirname, "config.json"), "{}");
     /** @type {import("./config.json")} */
@@ -391,6 +396,15 @@ class settings {
     } catch (e) {
       console.log("Failed to parse servers folder");
       this.serversFolder = path.resolve(path.join(__dirname, "servers"));
+    }
+    verkeyPath = process.platform == "win32" ? path.join(process.env.APPDATA, "SCP Secret Laboratory", "verkey.txt") : path.join(process.env.HOME, ".config", "SCP Secret Laboratory", "verkey.txt");
+    if (this.verkey == null) {
+      if (fs.existsSync(verkeyPath)) this.verkey = fs.readFileSync(verkeyPath).toString();
+      if (this.verkey != null && this.verkey.trim() == "") this.verkey = null;
+    } else if (this.verkey.trim() != "") {
+      fs.writeFileSync(verkeyPath, this.verkey);
+    } else {
+      this.verkey = null;
     }
     fs.writeFileSync(path.join(__dirname, "config.json"), JSON.stringify(this, null, 4));
   }
@@ -491,9 +505,6 @@ class ServerConfig {
 
   /** @type number */
   port = 0;
-
-  /** @type string */
-  verkey = null;
 
   /** @type string */
   assignedMachine = null;
@@ -1151,24 +1162,6 @@ class Server {
       this.error("Failed to get global dedicated server configs: {e}", { e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e });
       return;
     }
-    if (this.config.verkey != null && this.config.verkey.trim() != "") {
-      try {
-        fs.writeFileSync(
-          path.join(this.dedicatedServerAppdata, "verkey.txt"),
-          this.config.verkey
-        );
-      } catch (e) {
-        this.error("Failed to write verkey.txt: {e}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
-      }
-    } else {
-      try {
-        if (fs.existsSync(path.join(this.dedicatedServerAppdata, "verkey.txt")))
-          fs.rmSync(path.join(this.dedicatedServerAppdata, "verkey.txt"));
-      } catch (e) {
-        this.errorState = "Failed to delete verkey.txt: " + e != null ? e.code || e.message || e : e;
-        this.error("Failed to delete verkey.txt: {e}", { e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e });
-      }
-    }
     fs.writeFileSync(path.join(this.serverInstallFolder, "hoster_policy.txt"), "gamedir_for_configs: true");
     if (this.process != null) this.updatePending = true;
     this.state.configuring = false;
@@ -1400,17 +1393,18 @@ class Server {
       this.stateUpdate();
       return;
     }
+    if (this.state.restarting) {
+      this.log("Server Restarting", null, { color: 2 });
+      this.state.restarting = false;
+      this.state.starting = false;
+      this.start();
+      this.stateUpdate();
+      return;
+    }
     if (this.state.starting) {
       this.error("Server Startup failed, Exited with {code} - {signal}", { code: code, signal: signal });
       this.errorState = "Server exited during startup, Exited with "+ code +" - "+signal;
       this.state.starting = false;
-      this.stateUpdate();
-      return;
-    }
-    if (this.state.restarting) {
-      this.log("Server Restarting", null, { color: 2 });
-      this.state.restarting = false;
-      this.start();
       this.stateUpdate();
       return;
     }
@@ -1480,12 +1474,12 @@ class Server {
     } else if (code == 21 || code == 20) {
       if (this.state.delayedRestart) this.state.delayedRestart = false;
       this.state.stopping = true;
-      this.state.delayedStop = true;
+      this.state.delayedStop = !this.state.delayedStop;
       this.stateUpdate();
     } else if (code == 22) {
       if (this.state.delayedStop) this.state.delayedStop = false;
       this.state.restarting = true;
-      this.state.delayedRestart = true;
+      this.state.delayedRestart = !this.state.delayedRestart;
       this.stateUpdate();
     } else if (code == 19) {
       if (this.state.delayedRestart) {
@@ -1498,6 +1492,7 @@ class Server {
       this.stateUpdate();
     } else if (code == 17) {
       this.state.idleMode = true;
+      this.players = [];
       this.stateUpdate();
       if (this.nvlaMonitorInstalled) {
         clearTimeout(this.monitorTimeout);
@@ -1597,6 +1592,9 @@ class Server {
     this.playerlistTimeout = null;
     this.state.idleMode = false;
     this.updatePending = false;
+    this.state.delayedRestart = false;
+    this.state.restarting = false;
+    this.state.delayedStop = false;
     this.stateUpdate();
     this.playerlistTimeoutCount = 0;
     try {
@@ -1638,8 +1636,9 @@ class Server {
    * Ran when the server takes too long to start
    */
   async startTimeout () {
-    this.error("{label} Startup took too long, restarting", {label: this.config.label});
-    this.restart(true, true);
+    this.errorState = "Server startup took too long, check console";
+    this.error("{label} Startup took too long, stopping", {label: this.config.label});
+    this.stop(true, true);
   }
 
   stop(forced, kill = false) {
@@ -2149,6 +2148,8 @@ class NVLA extends EventEmitter {
   /** @type boolean */
   updateInProgress = false;
 
+  verkeyWatch;
+
   /** @type import("dgram")["Socket"]["prototype"] */
   echoServer;
 
@@ -2200,9 +2201,36 @@ class NVLA extends EventEmitter {
 
     this.logger.exitOnError = false;
 
-    this.network = new addresses(this.config.echoServerPort);
+    this.network = new addresses(this.config.echoServerPort);    
+
+    this.verkeyWatch = chokidar.watch(path.parse(verkeyPath).dir, {ignoreInitial: true,persistent: true});
+    this.verkeyWatch.on("all", this.userSCPSLAppdateUpdate.bind(this));
+    this.verkeyWatch.on("error", e => this.error("Verkey file Watch Error: {e}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e}));
 
     this.updateInterval = setInterval(this.update.bind(this), 1000);
+  }
+
+  async userSCPSLAppdateUpdate (event, filePath) {
+    if (this.stopped) return;
+    filePath = path.relative(path.parse(verkeyPath).dir, filePath);
+    if (path.parse(filePath).ext != ".txt" || path.parse(filePath).name != "verkey") return;
+    if (event == "add" || event == "change") {
+      let p = path.join(path.parse(verkeyPath).dir, filePath);
+      let data;
+      try {
+        data = fs.readFileSync(p).toString();
+      } catch (e) {
+        this.error("Failed to read verkey file: {e}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
+        return;
+      }
+      if (data.trim() == "") this.config.verkey = null;
+      else this.config.verkey = data.trim();
+      fs.writeFileSync(path.join(__dirname, "config.json"), JSON.stringify(this.config, null, 4));
+    } else if (event == "unlink") {
+      this.config.verkey = null;
+      fs.writeFileSync(path.join(__dirname, "config.json"), JSON.stringify(this.config, null, 4));
+    }
+    this.info("Verkey file event: {event} {filePath}", { event: event, filePath: filePath }, { color: 6 });
   }
 
   async checkMemory () {
