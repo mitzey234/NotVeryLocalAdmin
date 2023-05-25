@@ -252,6 +252,7 @@ class servers {
             o.errorState = s.errorState || null;
             o.states = s.state;
             o.players = s.players || null;
+            o.tps = s.tps || null;
             o.percent = s.percent || null;
             o.steamState = s.steamState || null;
             o.cpu = s.cpu || null;
@@ -298,6 +299,9 @@ class serverStateUpdate {
 
     updatePending;
 
+    /** @type number */
+    tps;
+
     /**
      * @param {import("./classes")["Server"]["prototype"]} server
      */
@@ -306,6 +310,7 @@ class serverStateUpdate {
         this.errorState = server.errorState || null;
         this.states = server.state;
         this.players = server.players || null;
+        this.tps = server.tps || null;
         this.percent = server.percent || null;
         this.steamState = server.steamState;
         this.cpu = server.cpu || null;

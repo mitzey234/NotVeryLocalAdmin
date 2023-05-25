@@ -1,7 +1,7 @@
 const fs = require("fs");
 const path = require("path");
 const axios = require("axios");
-const { spawn, fork } = require("child_process");
+const { spawn, fork, exec } = require("child_process");
 const EventEmitter = require("events");
 const pty = require("node-pty");
 const { Client } = require("./socket.js");
@@ -32,6 +32,8 @@ function getCPUPercent () {
 var defaultSteamPath = [__dirname, "steam"];
 var defaultServersPath = [__dirname, "servers"];
 var verkeyPath;
+
+let availableCpus = os.cpus().length;
 
 const ansiStripRegexPattern = [
   "[\\u001B\\u009B][[\\]()#;?]*(?:(?:(?:(?:;[-a-zA-Z\\d\\/#&.:=?%@~_]+)*|[a-zA-Z\\d]+(?:;[-a-zA-Z\\d\\/#&.:=?%@~_]*)*)?\\u0007)",
@@ -110,6 +112,25 @@ function toInt32 (int) {
   var arr2 = [];
   for (i = 0; i<arr.length; i++) arr2[i] = arr[arr.length-i-1];
   return Buffer.from(arr2.join(""), "hex");
+}
+
+function convertToMask (cpus) {
+  if (typeof cpus == "object" && Array.isArray(cpus)) {
+      let sum = 0;
+      for (i in cpus) sum += Math.pow(2,cpus[i]);
+      return sum.toString(16);
+  } else if (typeof cpus == "number") {
+      return Math.pow(2,cpus).toString(16);
+  } else {
+      throw "Unsupported type:" + typeof cpus;
+  }
+}
+
+function runCommand (command) {
+  return new Promise(function (resolve, reject) {
+      let run = exec(command);
+      run.on("close", resolve);
+  }.bind(command));
 }
 
 function processPrintF(info, seq) {
@@ -380,6 +401,10 @@ class settings {
 
   verkey = null;
 
+  cpuBalance = true;
+
+  cpusPerServer = 2;
+
   constructor() {
     if (!fs.existsSync(path.join(__dirname, "config.json"))) fs.writeFileSync(path.join(__dirname, "config.json"), "{}");
     /** @type {import("./config.json")} */
@@ -625,6 +650,9 @@ class Server {
 
   /** @type Array<string> */
   players;
+
+  /** @type number */
+  tps;
 
   /** @type NVLA["logger"] */
   logger;
@@ -1312,6 +1340,8 @@ class Server {
       this.checkInProgress = false;
     }
     this.players = data.players;
+    this.tps = data.tps;
+    if (this.state.idleMode) this,this.tps = null;
     clearTimeout(this.monitorTimeout);
     this.playerlistTimeoutCount = 0;
     this.monitorTimeout = setTimeout(this.monitorUpdateTimeout.bind(this), this.state.idleMode ? 60000*5 : 8000);
@@ -1369,6 +1399,7 @@ class Server {
     }
     this.process = null;
     this.players = null;
+    this.tps = null;
     this.uptime = null;
     this.nvlaMonitorInstalled = false;
     this.state.running = false;
@@ -1468,6 +1499,7 @@ class Server {
         this.state.running = true;
         this.uptime = Date.now();
         this.stateUpdate();
+        this.main.emit("serverReady", this);
         this.updateCycle();
       }
       this.roundStartTime = null;
@@ -1493,6 +1525,7 @@ class Server {
     } else if (code == 17) {
       this.state.idleMode = true;
       this.players = [];
+      this.tps = 0;
       this.stateUpdate();
       if (this.nvlaMonitorInstalled) {
         clearTimeout(this.monitorTimeout);
@@ -1529,6 +1562,7 @@ class Server {
           let arr = [];
           for (let i = 0; i < players; i++) arr.push("Unknown");
           this.players = arr;
+          this.tps = 0;
           this.playerlistTimeoutCount = 0;
           clearTimeout(this.playerlistTimeout);    
           this.tempListOfPlayersCatcher = true;
@@ -1586,6 +1620,7 @@ class Server {
     this.state.starting = true;
     this.uptime = new Date().getTime();
     this.players = null;
+    this.tps = null;
     this.nvlaMonitorInstalled = false;
     this.checkInProgress = false;
     this.playerlistCallback = null;
@@ -2153,6 +2188,8 @@ class NVLA extends EventEmitter {
   /** @type import("dgram")["Socket"]["prototype"] */
   echoServer;
 
+  cpuBalancingSupported;
+
   constructor() {
     super();
     this.config = new settings();
@@ -2348,6 +2385,13 @@ class NVLA extends EventEmitter {
       this.error("Steam check failed: {e}", { e: check });
       process.exit();
     }
+    if (this.config.cpuBalance) {
+      this.log("CPU balancing is enabled, checking taskset");
+      await this.checkTaskSet();
+      if (this.cpuBalancingSupported) {
+        this.on("serverReady", this.rebalanceServers.bind(this));
+      }
+    }
     this.log("Steam ready", null, { color: "blue" });
     this.vega = new Vega(this);
     this.vega.connect();
@@ -2356,6 +2400,61 @@ class NVLA extends EventEmitter {
     this.echoServer.on('message', this.echoServerMessage.bind(this));
     this.echoServer.bind(this.config.echoServerPort, this.config.echoServerAddress);
   }
+
+  cpuRebalanceInProg = false;
+
+  async rebalanceServers () {
+    while (this.cpuRebalanceInProg) await new Promise(r => setTimeout(r, 500));
+    this.cpuRebalanceInProg = true;
+    let currentCount = 0;
+    let primeCpus = new Map();
+    for (let y = 0; y < availableCpus; y++) primeCpus.set(y, 0);
+    for (var entry of this.ServerManager.servers.entries()) {
+        var i = entry[0], server = entry[1];
+        if (!server.state.running || server.process == null || server.process.pid == null) continue;
+        let cpus = [];
+        for (let x = 0; x < this.config.cpusPerServer; x++) {
+            let cpu = currentCount%availableCpus;
+            if (!cpus.includes(cpu)) cpus.push(cpu);
+            currentCount++;
+        }
+        cpus.sort(function (a,b) {
+            return primeCpus.get(a)-primeCpus.get(b);
+        }.bind(primeCpus));
+        var main = cpus[0];
+        primeCpus.set(main, primeCpus.get(main)+1);
+        var secondaries = cpus.filter(x => x != main);
+        let commands = [];
+        try {
+            commands.push("taskset -a -p " + convertToMask(secondaries) + " " + server.process.pid);
+            commands.push("taskset -p " + convertToMask(main) + " " + server.process.pid);
+        } catch (e) {
+          this.error("Failed generating mask for: {main} {secondaries} {server}\n{e}", { main: main, secondaries: secondaries, server: server != null ? server.config.label : "null", e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e });
+        }
+        for (let v in commands) {
+            let command = commands[v];
+            try {
+                let exitCode = await runCommand(command);
+                if (exitCode != 0) throw "Error occured setting the process afffinity";
+                this.log("CPU Affinity set - " + command);
+            } catch (e) {
+                this.error("Failed running command: {command}\n{e}", { command: command, e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e });
+            }
+        }
+    }
+    this.cpuRebalanceInProg = false;
+  }
+
+  async checkTaskSet () {
+    let exitcode = await runCommand('taskset -V');
+    if (exitcode != 0) {
+      this.error("Taskset is not available on this system");
+      this.cpuBalancingSupported = false;
+    } else {
+      this.log("Taskset is available on this system");
+      this.cpuBalancingSupported = true;
+    }
+}
 
   /**
    * @param {Buffer} msg 

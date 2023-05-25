@@ -6,29 +6,47 @@ using System;
 using PluginAPI.Core;
 using System.Linq;
 using Newtonsoft.Json.Linq;
+using UnityEngine;
+using PlayerRoles.Spectating;
+using PlayerRoles;
+using Respawning;
+using Hints;
 
 //Serves as a generic event handler object for any common events that don't pertain to any specific plugin or feature
 namespace NVLAMonitorPlugin.Utils
 {
     public class EventHandlers
     {
-
-        CoroutineHandle coroutine;
+        GameObject go;
 
         [PluginEvent(ServerEventType.WaitingForPlayers)]
         public void OnWaitingForPlayers()
         {
-            coroutine = Timing.RunCoroutine(loop());
-        }
-
-        public IEnumerator<float> loop()
-        {
-            while (true)
-            {;
-                JObject o = (JObject)JToken.FromObject(new data());
-                Console.Error.WriteLine("////NVLAMONITORSTATS--->" + o.ToString().Replace("\n", "").Replace("\r", ""));
-                yield return Timing.WaitForSeconds(0.75f);
+            if (go == null)
+            {
+                go = new GameObject();
+                go.AddComponent<MonitorComp>();
             }
+        }
+    }
+
+    public class MonitorComp : MonoBehaviour
+    {
+        private const float rate = 0.75f; //this is like the absolute limit, thanks northwood
+        private float timer = 0f;
+
+        private void Awake()
+        {
+            
+        }
+        
+        private void Update()
+        {
+            timer += Time.deltaTime;
+            if (timer <= rate) return;
+            JObject o = (JObject)JToken.FromObject(new data());
+            Console.Error.WriteLine("////NVLAMONITORSTATS--->" + o.ToString().Replace("\n", "").Replace("\r", ""));
+            timer = 0f;
         }
     }
 
@@ -36,9 +54,12 @@ namespace NVLAMonitorPlugin.Utils
     {
         public String[] players;
 
+        public int tps;
+
         public data ()
         {
             players = Player.GetPlayers().Where(x => !x.IsServer).Select(x => x.Nickname).ToArray();
+            tps = (int)Math.Round(1.0f / Time.smoothDeltaTime);
         }
     }
 }
