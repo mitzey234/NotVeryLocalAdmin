@@ -22,6 +22,7 @@
     "node-pty": "^0.10.1",
     "os-utils": "^0.0.14",
     "pidusage": "^2.0.21",
+    "ps-node": "^0.1.6",
     "semver": "^7.3.5",
     "tar-fs": "^2.1.1",
     "win-version-info": "^6.0.1",

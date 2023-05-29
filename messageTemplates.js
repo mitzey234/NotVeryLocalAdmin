@@ -9,140 +9,54 @@ class pong {
     }
 }
 
-class pluginConfigurationRequest {
+class assembliesRequest {
     /* @type {string} */
     type;
 
     /* @type {string} */
+    id;
+
     serverId;
 
-    /* @type {string} */
-    id;
+    subtype = "";
 
     /**
      * @param {import("./classes")["NVLA"]["prototype"]["vega"]} vega
      * @param {object} promise object
+     * @param {string} type
      * @param {string} serverId
      */
-    constructor (vega, promise, serverId) {
-        this.type = "pluginConfigurationRequest";
+    constructor (vega, promise, type, serverId) {
+        this.type = "assembliesRequest";
         this.id = vega.randomFileRequestId();
         vega.fileRequests.set(this.id, promise);
+        this.subtype = type;
         this.serverId = serverId;
     }
 }
 
-class pluginRequest {
+class configsRequest {
     /* @type {string} */
     type;
-
-    /* @type {string} */
-    plugin;
 
     /* @type {string} */
     id;
 
-    /**
-     * @param {import("./classes")["NVLA"]["prototype"]["vega"]} vega
-     * @param {object} promise object
-     * @param {string} plugin
-     */
-    constructor (vega, promise, plugin) {
-        this.type = "pluginRequest";
-        this.id = vega.randomFileRequestId();
-        vega.fileRequests.set(this.id, promise);
-        this.plugin = plugin;
-    }
-}
-
-class customAssemblyRequest {
-    /* @type {string} */
-    type;
-
-    /* @type {string} */
-    assembly;
-
-    /* @type {string} */
-    id;
-
-    /**
-     * @param {import("./classes")["NVLA"]["prototype"]["vega"]} vega
-     * @param {object} promise object
-     * @param {string} assembly
-     */
-    constructor (vega, promise, assembly) {
-        this.type = "customAssemblyRequest";
-        this.id = vega.randomFileRequestId();
-        vega.fileRequests.set(this.id, promise);
-        this.assembly = assembly;
-    }
-}
-
-class dependencyRequest {
-    /* @type {string} */
-    type;
-
-    /* @type {string} */
-    dependency;
-
-    /* @type {string} */
-    id;
-
-    /**
-     * @param {import("./classes")["NVLA"]["prototype"]["vega"]} vega
-     * @param {object} promise object
-     * @param {string} dependency
-     */
-    constructor (vega, promise, dependency) {
-        this.type = "dependencyRequest";
-        this.id = vega.randomFileRequestId();
-        vega.fileRequests.set(this.id, promise);
-        this.dependency = dependency;
-    }
-}
-
-class dedicatedServerConfigurationRequest {
-    /* @type {string} */
-    type;
-
-    /* @type {string} */
     serverId;
 
-    /* @type {string} */
-    id;
+    subtype = "";
 
     /**
      * @param {import("./classes")["NVLA"]["prototype"]["vega"]} vega
      * @param {object} promise object
+     * @param {string} type
      * @param {string} serverId
      */
-    constructor (vega, promise, serverId) {
-        this.type = "dedicatedServerConfigurationRequest";
+    constructor (vega, promise, type, serverId) {
+        this.type = "configsRequest";
         this.id = vega.randomFileRequestId();
         vega.fileRequests.set(this.id, promise);
-        this.serverId = serverId;
-    }
-}
-
-class globalDedicatedServerConfigurationRequest {
-    /* @type {string} */
-    type;
-
-    /* @type {string} */
-    serverId;
-
-    /* @type {string} */
-    id;
-
-    /**
-     * @param {import("./classes")["NVLA"]["prototype"]["vega"]} vega
-     * @param {object} promise object
-     * @param {string} serverId
-     */
-    constructor (vega, promise, serverId) {
-        this.type = "globalDedicatedServerConfigurationRequest";
-        this.id = vega.randomFileRequestId();
-        vega.fileRequests.set(this.id, promise);
+        this.subtype = type;
         this.serverId = serverId;
     }
 }
@@ -382,16 +296,12 @@ class serverConsoleLog {
 module.exports = {
     pong: pong,
     auth: auth,
-    pluginConfigurationRequest: pluginConfigurationRequest,
-    pluginRequest: pluginRequest,
-    customAssemblyRequest: customAssemblyRequest,
-    dependencyRequest: dependencyRequest,
-    dedicatedServerConfigurationRequest: dedicatedServerConfigurationRequest,
     updateFile: updateFile,
-    globalDedicatedServerConfigurationRequest: globalDedicatedServerConfigurationRequest,
     removeFile: removeFile,
     servers: servers,
     serverStateUpdate: serverStateUpdate,
     machineStatus: machineStatus,
-    serverConsoleLog: serverConsoleLog
+    serverConsoleLog: serverConsoleLog,
+    assembliesRequest: assembliesRequest,
+    configsRequest: configsRequest
 }

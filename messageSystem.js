@@ -59,6 +59,8 @@ class auth extends messageType {
     /* @type {string} */
     e;
 
+    httpPort;
+
     /**
      * @param main {messageHandler}
      * @param obj {object} */
@@ -67,6 +69,8 @@ class auth extends messageType {
         if (obj.data == null || obj.data == undefined) throw "type 'auth' requires 'data'";
         this.data = obj.data;
         if (obj.data != null && obj.data == true && (obj.id == null || obj.id == undefined)) throw "type 'auth' requires 'id'";
+        if (obj.httpPort == null || obj.httpPort == undefined) throw "type 'auth' requires 'httpPort'";
+        this.httpPort = obj.httpPort;
         this.id = obj.id;
         this.e = obj.e;
     }
@@ -75,6 +79,8 @@ class auth extends messageType {
      * @param {import("./socket")["Client"]["prototype"]} s */
      async execute(s) {
         if (this.data == true) {
+            this.vega.httpPort = this.httpPort;
+            this.vega.log("Vega download server at: {host}:{port}", {host:this.main.config.vega.host, port:this.httpPort}, {color: 6});
             s.pingSystem = new pingSystem(s.sendMessage, this.vega.serverTimeout.bind(this.vega));
             this.vega.log("Vega Connection completed", {messageType: this.constructor.name}, {color: 10});
             if (this.main.config.vega.id == null && this.id != null) {
@@ -289,7 +295,9 @@ class pluginConfigurationRequest extends messageType {
 }
 classes.set(pluginConfigurationRequest.name, pluginConfigurationRequest);
 
-class pluginRequest extends messageType {
+
+
+class configRequest extends messageType {
     /** @type {string} */
     id;
 
@@ -298,115 +306,7 @@ class pluginRequest extends messageType {
     e;
 
     /** File object
-     * @type {import("./classes")["File"]["prototype"]}} */
-    file;
-
-    /**
-     * @param main {messageHandler}
-     * @param obj {object} */
-        constructor(main, obj) {
-        super(main, obj);
-        if (obj.id == null || obj.id == undefined) throw "type 'fileRequest' requires 'id'";
-        this.id = obj.id;
-        this.e = obj.e;
-        this.file = obj.file;
-    }
-
-    /** 
-     * @param {import("./socket")["Client"]["prototype"]} s */
-    async execute(s) {
-        if (this.vega.fileRequests.has(this.id)) {
-            let request = this.vega.fileRequests.get(this.id);
-            if (this.e) return request.reject(this.e);
-            request.resolve(this.file);
-            this.vega.fileRequests.delete(this.id);
-        }
-    }    
-}
-classes.set(pluginRequest.name, pluginRequest);
-
-class customAssemblyRequest extends messageType {
-    /** @type {string} */
-    id;
-
-    /** Error codes thrown if any
-     *  @type {string} */
-    e;
-
-    /** File object
-     * @type {import("./classes")["File"]["prototype"]}} */
-    file;
-
-    /**
-     * @param main {messageHandler}
-     * @param obj {object} */
-        constructor(main, obj) {
-        super(main, obj);
-        if (obj.id == null || obj.id == undefined) throw "type 'fileRequest' requires 'id'";
-        this.id = obj.id;
-        this.e = obj.e;
-        this.file = obj.file;
-    }
-
-    /** 
-     * @param {import("./socket")["Client"]["prototype"]} s */
-    async execute(s) {
-        if (this.vega.fileRequests.has(this.id)) {
-            let request = this.vega.fileRequests.get(this.id);
-            if (this.e) return request.reject(this.e);
-            request.resolve(this.file);
-            this.vega.fileRequests.delete(this.id);
-        }
-    }
-}
-classes.set(customAssemblyRequest.name, customAssemblyRequest);
-
-class dependencyRequest extends messageType {
-    /** @type {string} */
-    id;
-
-    /** Error codes thrown if any
-     *  @type {string} */
-    e;
-
-    /** File object
-     * @type {import("./classes")["File"]["prototype"]}} */
-    file;
-
-    /**
-     * @param main {messageHandler}
-     * @param obj {object} */
-        constructor(main, obj) {
-        super(main, obj);
-        if (obj.id == null || obj.id == undefined) throw "type 'fileRequest' requires 'id'";
-        this.id = obj.id;
-        this.e = obj.e;
-        this.file = obj.file;
-    }
-
-    /** 
-     * @param {import("./socket")["Client"]["prototype"]} s */
-    async execute(s) {
-        if (this.vega.fileRequests.has(this.id)) {
-            let request = this.vega.fileRequests.get(this.id);
-            if (this.e) return request.reject(this.e);
-            request.resolve(this.file);
-            this.vega.fileRequests.delete(this.id);
-        }
-    }
-}
-classes.set(dependencyRequest.name, dependencyRequest);
-
-class dedicatedServerConfigurationRequest extends messageType {
-    /** @type {string} */
-    id;
-
-    /** Error codes thrown if any
-     *  @type {string} */
-    e;
-
-    /** File objects
-     * @type {Array<import("./classes")["File"]["prototype"]}>} */
+     * @type {Array<import("./classes")["FileInfo"]["prototype"]>}} */
     files;
 
     /**
@@ -414,7 +314,7 @@ class dedicatedServerConfigurationRequest extends messageType {
      * @param obj {object} */
         constructor(main, obj) {
         super(main, obj);
-        if (obj.id == null || obj.id == undefined) throw "type 'fileRequest' requires 'id'";
+        if (obj.id == null || obj.id == undefined) throw "type 'configRequest' requires 'id'";
         this.id = obj.id;
         this.e = obj.e;
         this.files = obj.files;
@@ -431,7 +331,129 @@ class dedicatedServerConfigurationRequest extends messageType {
         }
     }    
 }
-classes.set(dedicatedServerConfigurationRequest.name, dedicatedServerConfigurationRequest);
+classes.set(configRequest.name, configRequest);
+
+class assembliesRequest extends messageType {
+    /** @type {string} */
+    id;
+
+    /** Error codes thrown if any
+     *  @type {string} */
+    e;
+
+    /** File object
+     * @type {Array<import("./classes")["FileInfo"]["prototype"]>}} */
+    files;
+
+    /**
+     * @param main {messageHandler}
+     * @param obj {object} */
+        constructor(main, obj) {
+        super(main, obj);
+        if (obj.id == null || obj.id == undefined) throw "type 'assembliesRequest' requires 'id'";
+        this.id = obj.id;
+        this.e = obj.e;
+        this.files = obj.files;
+    }
+
+    /** 
+     * @param {import("./socket")["Client"]["prototype"]} s */
+    async execute(s) {
+        if (this.vega.fileRequests.has(this.id)) {
+            let request = this.vega.fileRequests.get(this.id);
+            if (this.e) return request.reject(this.e);
+            request.resolve(this.files);
+            this.vega.fileRequests.delete(this.id);
+        }
+    }    
+}
+classes.set(assembliesRequest.name, assembliesRequest);
+
+
+class updateAssembly extends messageType {
+    /** @type {string} */
+    subType;
+
+    /** @type {string} */
+    name;
+
+    /**
+     * @param main {messageHandler}
+     * @param obj {object} */
+        constructor(main, obj) {
+        super(main, obj);
+        if (obj.subType == null || obj.subType == undefined) throw "type 'updateAssembly' requires 'subType'";
+        if (obj.name == null || obj.name == undefined) throw "type 'updateAssembly' requires 'name'";
+        this.name = obj.name;
+        this.subType = obj.subType;
+    }
+
+    /** 
+     * @param {import("./socket")["Client"]["prototype"]} s */
+    async execute(s) {
+        let property;
+        let method;
+        if (this.subType == "plugin") {
+            property = "plugins";
+            method = "getPlugins";
+        } else if (this.subType == "customAssembly") {
+            property = "customAssemblies";
+            method = "getCustomAssemblies";
+        } else if (this.subType == "dependency") {
+            property = "dependencies";
+            method = "getDependencies";
+        }
+        this.main.ServerManager.servers.forEach(async server => {
+            if (property == "customAssemblies") await server.update(true);
+            if (server.config[property].includes(this.name)) server[method].bind(server)();
+        });
+    }    
+}
+classes.set(updateAssembly.name, updateAssembly);
+
+class deleteAssembly extends messageType {
+    /** @type {string} */
+    subType;
+
+    /** @type {string} */
+    name;
+
+    /**
+     * @param main {messageHandler}
+     * @param obj {object} */
+        constructor(main, obj) {
+        super(main, obj);
+        if (obj.subType == null || obj.subType == undefined) throw "type 'deleteAssembly' requires 'subType'";
+        if (obj.name == null || obj.name == undefined) throw "type 'deleteAssembly' requires 'name'";
+        this.name = obj.name;
+        this.subType = obj.subType;
+    }
+
+    /** 
+     * @param {import("./socket")["Client"]["prototype"]} s */
+    async execute(s) {
+        let property;
+        let method;
+        if (this.subType == "plugin") {
+            property = "plugins";
+            method = "getPlugins";
+        } else if (this.subType == "customAssembly") {
+            property = "customAssemblies";
+            method = "getCustomAssemblies";
+        } else if (this.subType == "dependency") {
+            property = "dependencies";
+            method = "getDependencies";
+        }
+        this.main.ServerManager.servers.forEach(async server => {
+            if (property == "customAssemblies") await server.update(true);
+            if (server.config[property].includes(this.name)) await server[method].bind(server)();
+        });
+    }    
+}
+classes.set(deleteAssembly.name, deleteAssembly);
+
+
+
 
 class updateConfig extends messageType {
     /** @type {string} Server id if specific*/
@@ -469,352 +491,6 @@ class updateConfig extends messageType {
     }
 }
 classes.set(updateConfig.name, updateConfig);
-
-class updatePluginsConfig extends messageType {
-    /** @type {string} Server id if specific*/
-    id;
-
-    /**
-     * @param main {messageHandler}
-     * @param obj {object} */
-    constructor(main, obj) {
-        super(main, obj);
-        this.id = obj.id;
-    }
-
-    /** 
-     * @param {import("./socket")["Client"]["prototype"]} s */
-     async execute(s) {
-        if (this.id != null) {
-            if (this.main.ServerManager.servers.has(this.id)) {
-                let server = this.main.ServerManager.servers.get(this.id);
-                try {
-                    await server.getPluginConfigFiles();
-                } catch (e) {
-                    this.error("Failed to update plugin config files for server {serverId}", {serverId: this.id});
-                }
-            }
-        } else {
-            this.main.ServerManager.servers.forEach(async function (server, id) {
-                try {
-                    await server.getPluginConfigFiles();
-                } catch (e) {
-                    this.error("Failed to update plugin config files for server {serverId}", {serverId: id});
-                }
-            }.bind(this));
-        }
-    }
-}
-classes.set(updatePluginsConfig.name, updatePluginsConfig);
-
-class updatePlugin extends messageType {
-    /** @type {string} Name of plugin*/
-    name;
-
-    /** @type {string} Base64 string of plugin data*/
-    data;
-
-    /**
-     * @param main {messageHandler}
-     * @param obj {object} */
-    constructor(main, obj) {
-        super(main, obj);
-        if (obj.name == null || obj.name == undefined) throw "type 'updatePlugin' requires 'name'";
-        if (obj.data == null || obj.data == undefined) throw "type 'updatePlugin' requires 'data'";
-        this.name = obj.name;
-        this.data = obj.data;
-    }
-
-    /** 
-     * @param {import("./socket")["Client"]["prototype"]} s */
-     async execute(s) {
-        this.main.ServerManager.servers.forEach(
-            /**
-             * @param {import("./classes")["Server"]["prototype"]} server
-             * @param {string} id
-             */
-            async function (server, id) {
-            try {
-                server.log("Updating plugin {name}", {name: this.name});
-                if (server.config.plugins.includes(this.name)) {
-                    fs.writeFileSync(path.join(server.pluginsFolderPath, this.name+".dll"), this.data, {encoding: "base64"});
-                    if (server.process != null) server.updatePending = true;
-                }
-            } catch (e) {
-                this.error("Failed to update plugin {name} for server {serverId} {e}", {name: this.name, serverId: id, e: e != null ? e.code || e.message : e, stack: e != null ? e.stack : e});
-            }
-        }.bind(this));
-    }
-}
-classes.set(updatePlugin.name, updatePlugin);
-
-class deletePlugin extends messageType {
-    /** @type {string} Name of plugin*/
-    name;
-
-    /**
-     * @param main {messageHandler}
-     * @param obj {object} */
-    constructor(main, obj) {
-        super(main, obj);
-        if (obj.name == null || obj.name == undefined) throw "type 'deletePlugin' requires 'name'";
-        this.name = obj.name;
-    }
-
-    /** 
-     * @param {import("./socket")["Client"]["prototype"]} s */
-     async execute(s) {
-        this.log("Deleting plugin {name}", {name: this.name});
-        this.main.ServerManager.servers.forEach(
-            /**
-             * @param {import("./classes")["Server"]["prototype"]} server
-             * @param {string} id
-             */
-            async function (server, id) {
-            try {
-                if (server.config.plugins.includes(this.name)) {
-                    server.config.plugins.splice(server.config.plugins.indexOf(this.name), 1);
-                    fs.writeFileSync(path.join(server.serverContainer, "config.json"), JSON.stringify(server.config, null, 4));
-                    fs.rmSync(path.join(server.pluginsFolderPath, this.name+".dll"));
-                    if (server.process != null) server.updatePending = true;
-                }
-            } catch (e) {
-                this.error("Failed to delete plugin {name} for server {serverId} {e}", {name: this.name, serverId: id, e: e != null ? e.code || e.message : e, stack: e != null ? e.stack : e});
-            }
-        }.bind(this));
-    }
-}
-classes.set(deletePlugin.name, deletePlugin);
-
-class updateDependency extends messageType {
-    /** @type {string} Name of Dependency*/
-    name;
-
-    /** @type {string} Base64 string of Dependency data*/
-    data;
-
-    /**
-     * @param main {messageHandler}
-     * @param obj {object} */
-    constructor(main, obj) {
-        super(main, obj);
-        if (obj.name == null || obj.name == undefined) throw "type 'updateDependency' requires 'name'";
-        if (obj.data == null || obj.data == undefined) throw "type 'updateDependency' requires 'data'";
-        this.name = obj.name;
-        this.data = obj.data;
-    }
-
-    /** 
-     * @param {import("./socket")["Client"]["prototype"]} s */
-     async execute(s) {
-        this.log("Updating Dependency {name}", {name: this.name});
-        this.main.ServerManager.servers.forEach(
-            /**
-             * @param {import("./classes")["Server"]["prototype"]} server
-             * @param {string} id
-             */
-            async function (server, id) {
-            try {
-                if (server.config.dependencies.includes(this.name)) {
-                    fs.writeFileSync(path.join(server.pluginsFolderPath, "dependencies", this.name+".dll"), this.data, {encoding: "base64"});
-                    if (server.process != null) server.updatePending = true;
-                }
-            } catch (e) {
-                this.error("Failed to update Dependency {name} for server {serverId} {e}", {name: this.name, serverId: id, e: e != null ? e.code || e.message : e, stack: e != null ? e.stack : e});
-            }
-        }.bind(this));
-    }
-}
-classes.set(updateDependency.name, updateDependency);
-
-class deleteDependency extends messageType {
-    /** @type {string} Name of Dependency*/
-    name;
-
-    /**
-     * @param main {messageHandler}
-     * @param obj {object} */
-    constructor(main, obj) {
-        super(main, obj);
-        if (obj.name == null || obj.name == undefined) throw "type 'deleteDependency' requires 'name'";
-        this.name = obj.name;
-    }
-
-    /** 
-     * @param {import("./socket")["Client"]["prototype"]} s */
-     async execute(s) {
-        this.log("Deleting Dependency {name}", {name: this.name});
-        this.main.ServerManager.servers.forEach(
-            /**
-             * @param {import("./classes")["Server"]["prototype"]} server
-             * @param {string} id
-             */
-            async function (server, id) {
-            try {
-                if (server.config.dependencies.includes(this.name)) {
-                    server.config.dependencies.splice(server.config.dependencies.indexOf(this.name), 1);
-                    fs.writeFileSync(path.join(server.serverContainer, "config.json"), JSON.stringify(server.config, null, 4));
-                    fs.rmSync(path.join(server.pluginsFolderPath, "dependencies", this.name+".dll"));
-                    if (server.process != null) server.updatePending = true;
-                }
-            } catch (e) {
-                this.error("Failed to delete Dependency {name} for server {serverId} {e}", {name: this.name, serverId: id, e: e != null ? e.code || e.message : e, stack: e != null ? e.stack : e});
-            }
-        }.bind(this));
-    }
-}
-classes.set(deleteDependency.name, deleteDependency);
-
-class updateCustomAssembly extends messageType {
-    /** @type {string} Name of Dependency*/
-    name;
-
-    /** @type {string} Base64 string of Dependency data*/
-    data;
-
-    /**
-     * @param main {messageHandler}
-     * @param obj {object} */
-    constructor(main, obj) {
-        super(main, obj);
-        if (obj.name == null || obj.name == undefined) throw "type 'updateCustomAssembly' requires 'name'";
-        if (obj.data == null || obj.data == undefined) throw "type 'updateCustomAssembly' requires 'data'";
-        this.name = obj.name;
-        this.data = obj.data;
-    }
-
-    /** 
-     * @param {import("./socket")["Client"]["prototype"]} s */
-     async execute(s) {
-        this.log("Updating Custom Assembly {name}", {name: this.name});
-        this.main.ServerManager.servers.forEach(
-            /**
-             * @param {import("./classes")["Server"]["prototype"]} server
-             * @param {string} id
-             */
-            async function (server, id) {
-            try {
-                if (server.config.customAssemblies.includes(this.name)) {
-                    fs.writeFileSync(path.join(server.serverCustomAssembliesFolder, this.name+".dll"), this.data, {encoding: "base64"});
-                    if (server.process != null) server.updatePending = true;
-                }
-            } catch (e) {
-                this.error("Failed to update Custom Assembly {name} for server {serverId} {e}", {name: this.name, serverId: id, e: e != null ? e.code || e.message : e, stack: e != null ? e.stack : e});
-            }
-        }.bind(this));
-    }
-}
-classes.set(updateCustomAssembly.name, updateCustomAssembly);
-
-class deleteCustomAssembly extends messageType {
-    /** @type {string} Name of Dependency*/
-    name;
-
-    /**
-     * @param main {messageHandler}
-     * @param obj {object} */
-    constructor(main, obj) {
-        super(main, obj);
-        if (obj.name == null || obj.name == undefined) throw "type 'deleteCustomAssembly' requires 'name'";
-        this.name = obj.name;
-    }
-
-    /** 
-     * @param {import("./socket")["Client"]["prototype"]} s */
-     async execute(s) {
-        this.log("Deleting Custom Assembly {name}", {name: this.name});
-        this.main.ServerManager.servers.forEach(
-            /**
-             * @param {import("./classes")["Server"]["prototype"]} server
-             * @param {string} id
-             */
-            async function (server, id) {
-            try {
-                if (server.config.customAssemblies.includes(this.name)) {
-                    server.config.customAssemblies.splice(server.config.customAssemblies.indexOf(this.name), 1);
-                    fs.writeFileSync(path.join(server.serverContainer, "config.json"), JSON.stringify(server.config, null, 4));
-                    if (server.process != null) server.updatePending = true;
-                }
-            } catch (e) {
-                this.error("Failed to delete Custom Assembly {name} for server {serverId} {e}", {name: this.name, serverId: id, e: e != null ? e.code || e.message : e, stack: e != null ? e.stack : e});
-            }
-        }.bind(this));
-    }
-}
-classes.set(deleteCustomAssembly.name, deleteCustomAssembly);
-
-class globalDedicatedServerConfigurationRequest extends messageType {
-    /** @type {string} */
-    id;
-
-    /** Error codes thrown if any
-     *  @type {string} */
-    e;
-
-    /** File objects
-     * @type {Array<import("./classes")["File"]["prototype"]}>} */
-    files;
-
-    /**
-     * @param main {messageHandler}
-     * @param obj {object} */
-        constructor(main, obj) {
-        super(main, obj);
-        if (obj.id == null || obj.id == undefined) throw "type 'fileRequest' requires 'id'";
-        this.id = obj.id;
-        this.e = obj.e;
-        this.files = obj.files;
-    }
-
-    /** 
-     * @param {import("./socket")["Client"]["prototype"]} s */
-    async execute(s) {
-        if (this.vega.fileRequests.has(this.id)) {
-            let request = this.vega.fileRequests.get(this.id);
-            if (this.e) return request.reject(this.e);
-            request.resolve(this.files);
-            this.vega.fileRequests.delete(this.id);
-        }
-    }
-}
-classes.set(globalDedicatedServerConfigurationRequest.name, globalDedicatedServerConfigurationRequest);
-
-class updateGlobalConfigFile extends messageType {
-    /** @type {string} Server id if specific*/
-    id;
-
-    /**
-     * @param main {messageHandler}
-     * @param obj {object} */
-    constructor(main, obj) {
-        super(main, obj);
-        this.id = obj.id;
-    }
-
-    /** 
-     * @param {import("./socket")["Client"]["prototype"]} s */
-     async execute(s) {
-        if (this.id != null) {
-            if (this.main.ServerManager.servers.has(this.id)) {
-                let server = this.main.ServerManager.servers.get(this.id);
-                try {
-                    await server.getGlobalDedicatedServerConfigFiles();
-                } catch (e) {
-                    this.error("Failed to update global config files for server {serverId}", {serverId: this.id});
-                }
-            }
-        } else {
-            this.main.ServerManager.servers.forEach(async function (server, id) {
-                try {
-                    await server.getGlobalDedicatedServerConfigFiles();
-                } catch (e) {
-                    this.error("Failed to update global config files for server {serverId}", {serverId: id});
-                }
-            }.bind(this));
-        }
-    }
-}
-classes.set(updateGlobalConfigFile.name, updateGlobalConfigFile);
 
 class updateFile extends messageType {
     /** @type {string} Server id*/
@@ -879,7 +555,7 @@ class updateFile extends messageType {
             }
             try {
                 if (fs.existsSync(filePath) && fs.readFileSync(filePath, { encoding: "base64" }) == file.data) return;
-                server.ignoreConfigFilePaths.push(path.join(joinPaths(file.path), file.name));
+                //server.ignoreConfigFilePaths.push(path.join(joinPaths(file.path), file.name));
                 fs.writeFileSync(filePath, file.data, { encoding: "base64" });
             } catch (e) {
                 server.error("Failed to write global dedicated server config file: {e}", {e: e != null ? e.code || e.message : e, stack: e != null ? e.stack : e});
@@ -943,7 +619,7 @@ class deleteFile extends messageType {
             if (!fs.existsSync(path.parse(filePath).dir)) return;
             try {
                 if (!fs.existsSync(filePath)) return;
-                server.ignoreConfigFilePaths.push(path.join(joinPaths(file.path), file.name));
+                //server.ignoreConfigFilePaths.push(path.join(joinPaths(file.path), file.name));
                 fs.rmSync(filePath);
             } catch (e) {
                 server.error("Failed to delete global dedicated server config file: {e}", {e: e != null ? e.code || e.message : e, stack: e != null ? e.stack : e});

@@ -20,6 +20,7 @@ const Stream = require('stream');
 const osAlt = require('os-utils');
 const os = require('os');
 const udp = require('dgram');
+const exp = require("constants");
 
 function getCPUPercent () {
     return new Promise((resolve, reject) => {
@@ -244,6 +245,27 @@ function readFolder(root, p = [], includeDirs = false) {
     }
   }
   return files;
+}
+
+function loadMD5 (p) {
+  return new Promise(function (resolve, reject) {
+      let hash = crypto.createHash('md5');
+      let stream;
+      try {
+          stream = fs.createReadStream(this.toString());
+      } catch (e) {
+          reject(e);
+      }
+      stream.on('data', function (data) {
+          hash.update(data, 'utf8')
+      });
+      stream.on('end', function () {
+          resolve(hash.digest('base64'));
+      });
+      stream.on('error', function (e) {
+          reject(e);
+      });
+  }.bind(p))
 }
 
 class winstonLogger { 
@@ -638,9 +660,11 @@ class Server {
   /** boolean */
   disableWatching = false;
 
-  ignoreConfigFilePaths = [];
+  pluginLockfiles = new Map();
 
-  ignorePluginConfigFilePaths = [];
+  configLockfiles = new Map();
+
+  globalConfigLockfiles = new Map();
 
   /** @type serverState */
   state;
@@ -789,17 +813,17 @@ class Server {
       this.error("Failed to check if file is ignored: {e}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
       return;
     }
-    if (this.ignoreConfigFilePaths.includes(filePath)) return (this.ignoreConfigFilePaths = this.ignoreConfigFilePaths.filter((x) => x != filePath));
+    if (this.globalConfigLockfiles.has(filePath)) return;
     if (event == "add" || event == "change") {
       let p = path.parse(path.normalize(filePath)).dir.split(path.sep);
       let name = path.parse(filePath).base;
-      this.main.vega.client.sendMessage(new mt.updateFile(this.config.id, p, name, fs.readFileSync(path.join(this.globalDedicatedServerConfigFiles, filePath)).toString("base64"), "GlobalConfigFile"));
+      //this.main.vega.client.sendMessage(new mt.updateFile(this.config.id, p, name, fs.readFileSync(path.join(this.globalDedicatedServerConfigFiles, filePath)).toString("base64"), "GlobalConfigFile"));
     } else if (event == "unlink") {
       let p = path.parse(path.normalize(filePath)).dir.split(path.sep);
       let name = path.parse(filePath).base;
-      this.main.vega.client.sendMessage(new mt.removeFile(this.config.id, p, name, "GlobalConfigFile"));
+      //this.main.vega.client.sendMessage(new mt.removeFile(this.config.id, p, name, "GlobalConfigFile"));
     }
-    this.verbose("Global Config file event: {event} {filePath}", { event: event, filePath: filePath }, { color: 6 });
+    this.log("Global Config file event: {event} {filePath}", { event: event, filePath: filePath }, { color: 6 });
   }
 
   async onConfigFileEvent(event, filePath) {
@@ -810,17 +834,17 @@ class Server {
     } catch (e) {
       this.error("Failed to check if file is ignored: {e}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
     }
-    if (this.ignoreConfigFilePaths.includes(filePath)) return (this.ignoreConfigFilePaths = this.ignoreConfigFilePaths.filter((x) => x != filePath));
+    if (this.configLockfiles.has(filePath)) return;
     if (event == "add" || event == "change") {
       let p = path.parse(path.normalize(filePath)).dir.split(path.sep);
       let name = path.parse(filePath).base;
-      this.main.vega.client.sendMessage(new mt.updateFile(this.config.id, p, name, fs.readFileSync(path.join(this.serverConfigsFolder, filePath)).toString("base64"), "ConfigFile"));
+      //this.main.vega.client.sendMessage(new mt.updateFile(this.config.id, p, name, fs.readFileSync(path.join(this.serverConfigsFolder, filePath)).toString("base64"), "ConfigFile"));
     } else if (event == "unlink") {
       let p = path.parse(path.normalize(filePath)).dir.split(path.sep);
       let name = path.parse(filePath).base;
-      this.main.vega.client.sendMessage(new mt.removeFile(this.config.id, p, name, "ConfigFile"));
+      //this.main.vega.client.sendMessage(new mt.removeFile(this.config.id, p, name, "ConfigFile"));
     }
-    this.verbose("Config file event: {event} {filePath}", { event: event, filePath: filePath }, { color: 6 });
+    this.log("Config file event: {event} {filePath}", { event: event, filePath: filePath }, { color: 6 });
   }
 
   async onPluginConfigFileEvent(event, filePath) {
@@ -832,54 +856,86 @@ class Server {
       this.error("Failed to check if file is ignored: {e}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
     }
     if (filePath.startsWith("dependencies") || filePath.endsWith(".dll")) return;
-    if (this.ignorePluginConfigFilePaths.includes(filePath)) return (this.ignorePluginConfigFilePaths = this.ignorePluginConfigFilePaths.filter((x) => x != filePath));
+    if (this.pluginLockfiles.has(filePath)) return;
     if (event == "add" || event == "change") {
       let p = path.parse(path.normalize(filePath)).dir.split(path.sep);
       let name = path.parse(filePath).base;
-      this.main.vega.client.sendMessage(new mt.updateFile(this.config.id, p, name, fs.readFileSync(path.join(this.pluginsFolderPath, filePath)).toString("base64"), "PluginConfigFile"));
+      //this.main.vega.client.sendMessage(new mt.updateFile(this.config.id, p, name, fs.readFileSync(path.join(this.pluginsFolderPath, filePath)).toString("base64"), "PluginConfigFile"));
     } else if (event == "unlink") {
       let p = path.parse(path.normalize(filePath)).dir.split(path.sep);
       let name = path.parse(filePath).base;
-      this.main.vega.client.sendMessage(new mt.removeFile(this.config.id, p, name, "PluginConfigFile"));
+      //this.main.vega.client.sendMessage(new mt.removeFile(this.config.id, p, name, "PluginConfigFile"));
     }
-    this.verbose("Plugin config file event: {event} {filePath}", { event: event, filePath: filePath }, { color: 6 });
+    this.log("Plugin config file event: {event} {filePath}", { event: event, filePath: filePath }, { color: 6 });
   }
 
-  async getPluginConfigFiles() {
-    /** @type {File[]} */
+  async getConfigs (type) {
+    let targetFolder;
+    let names;
+    let shortName;
+    let usedFolders = [];
+    let lockFiles;
+    if (type == "pluginConfig") {
+      targetFolder = this.pluginsFolderPath;
+      names = "Plugin Configs";
+      shortName = "Plugin Config";
+      usedFolders.push("dependencies");
+      lockFiles = this.pluginLockfiles;
+    } else if (type == "serverConfig") {
+      targetFolder = this.serverConfigsFolder;
+      names = "Server Configs";
+      shortName = "Server Config";
+      lockFiles = this.configLockfiles;
+    } else if (type == "globalServerConfig") {
+      targetFolder = this.globalDedicatedServerConfigFiles;
+      names = "Global Server Configs";
+      shortName = "Global Server Config";
+      lockFiles = this.globalConfigLockfiles;
+    } else {
+      throw "Invalid type";
+    }
+    if (targetFolder == null) throw "Target folder was null";
     let files;
     try {
-      files = await this.main.vega.getPluginConfiguration(this.config.id);
+      files = await this.main.vega.getConfigs(type, this.config.id);
     } catch (e) {
-      this.errorState = "Failed to get plugin configs: " + e != null ? e.code || e.message || e : e;
-      return this.error("Failed to get plugin configs: {e}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
+      this.errorState = "Failed to get "+names+": " + e != null ? e.code || e.message || e : e;
+      this.error("Failed to get {subType}: {e}", {subType: names, e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
+      return;
     }
-    let usedFolders = ["dependencies"];
     for (var x in files) {
       /** @type {File} */
       let file = files[x];
-      let filePath = path.join(this.pluginsFolderPath, joinPaths(file.path), file.name);
+      let filePath = path.join(targetFolder, joinPaths(file.path), file.name);
       if (!usedFolders.includes(joinPaths(file.path))) usedFolders.push(joinPaths(file.path));
-      this.log("Writing: {path}", { path: joinPaths(file.path) + path.sep + file.name });
       try {
         if (!fs.existsSync(path.parse(filePath).dir)) fs.mkdirSync(path.parse(filePath).dir, { recursive: true });
       } catch (e) {
-        this.errorState = "Failed to create plugin config directory: " + e != null ? e.code || e.message || e : e;
-        this.error("Failed to create plugin config directory: {e}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
+        this.errorState = "Failed to create "+shortName+" directory: " + e != null ? e.code || e.message || e : e;
+        this.error("Failed to create "+shortName+" directory: {e}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
         continue;
       }
       try {
-        if (fs.existsSync(filePath) && fs.readFileSync(filePath, { encoding: "base64" }) == file.data) continue;
-        this.ignorePluginConfigFilePaths.push(path.join(joinPaths(file.path), file.name));
-        fs.writeFileSync(filePath, file.data, { encoding: "base64" });
+        if (fs.existsSync(filePath) && await loadMD5(filePath) == file.md5) {
+          this.log("Up to date: {path}", { path: joinPaths(file.path) + path.sep + file.name });
+          continue;
+        }
+        this.log("Writing ("+file.md5+"): {path}", { path: joinPaths(file.path) + path.sep + file.name });
+        if (!lockFiles.has(path.join(joinPaths(file.path), file.name))) lockFiles.set(path.join(joinPaths(file.path), file.name), 0);
+        let lockfile = lockFiles.get(path.join(joinPaths(file.path), file.name))+1;
+        lockFiles.set(path.join(joinPaths(file.path), file.name), lockfile);
+        await this.main.vega.downloadFile("configFile", type, file.name, this, file.path);
+        if (await loadMD5(filePath) != file.md5) throw "MD5 mismatch";
+        lockfile = lockFiles.get(path.join(joinPaths(file.path), file.name))-1;
+        if (lockfile <= 0) lockFiles.delete(path.join(joinPaths(file.path), file.name));
+        else lockFiles.set(path.join(joinPaths(file.path), file.name), lockfile);
       } catch (e) {
-        this.errorState = "Failed to write plugin config file: " + e != null ? e.code || e.message || e : e;
-        this.error("Failed to write plugin config file: {e}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
-        continue;
+        this.errorState = "Failed to write "+shortName+" file: " + e != null ? e.code || e.message || e : e;
+        this.error("Failed to write "+shortName+" file: {e}\n{stack}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
       }
     }
     /** @type Array<> */
-    var currentFiles = readFolder(this.pluginsFolderPath, null, true);
+    var currentFiles = readFolder(targetFolder, null, true);
     let folders = currentFiles.filter((x) => x.isDir);
     currentFiles = currentFiles.filter((x) => !x.isDir);
     for (var i in currentFiles) {
@@ -894,254 +950,157 @@ class Server {
       }
       try {
         try {
-          if (!isIgnored(this.pluginsFolderPath, path.join(this.pluginsFolderPath, joinPaths(file.p) || "", file.filename)) && !safe && !path.join(joinPaths(file.p) || "", file.filename).startsWith("dependencies") && !(file.filename.endsWith(".dll") && path.parse(path.join(joinPaths(file.p) || "", file.filename)).dir == "")) {
+          if (!isIgnored(targetFolder, path.join(targetFolder, joinPaths(file.p) || "", file.filename)) && !safe && (type == "pluginConfig" ? !path.join(joinPaths(file.p) || "", file.filename).startsWith("dependencies") : true) && !(file.filename.endsWith(".dll") && path.parse(path.join(joinPaths(file.p) || "", file.filename)).dir == "")) {
             this.log("Deleting: {path}", {path: path.join(joinPaths(file.p) || "", file.filename )});
-            this.ignoreFilePaths.push(path.join(joinPaths(file.p) || "", file.filename));
-            fs.rmSync(path.join(this.pluginsFolderPath, joinPaths(file.p) || "", file.filename), { recursive: true });
+            if (!lockFiles.has(path.join(joinPaths(file.p) || "", file.filename))) lockFiles.set(path.join( joinPaths(file.p) || "", file.filename), 0);
+            let lockfile = lockFiles.get(path.join(joinPaths(file.p) || "", file.filename))+1;
+            lockFiles.set(path.join(joinPaths(file.p) || "", file.filename), lockfile);
+            fs.rmSync(path.join(targetFolder, joinPaths(file.p) || "", file.filename), { recursive: true });
+            lockfile = lockFiles.get(path.join(joinPaths(file.p) || "", file.filename))-1;
+            if (lockfile <= 0) lockFiles.delete(path.join(joinPaths(file.p) || "", file.filename));
+            else lockFiles.set(path.join(joinPaths(file.p) || "", file.filename), lockfile);    
           }
         } catch (e) {
           this.error("Failed to check if file is ignored: {e}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
         }
       } catch (e) {
-        this.errorState = "Failed to delete unneeded plugin config file: " + e != null ? e.code || e.message || e : e;
-        this.error("Failed to delete unneeded plugin config file: {e}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
+        this.errorState = "Failed to delete unneeded "+shortName+" file: " + e != null ? e.code || e.message || e : e;
+        this.error("Failed to delete unneeded "+shortName+" file: {e}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
         continue;
       }
     }
     for (i in folders) {
       try {
-        if (usedFolders.includes(path.join(path.normalize(joinPaths(folders[i].p)), folders[i].filename)) || isIgnored(this.pluginsFolderPath, path.join(this.pluginsFolderPath, joinPaths(folders[i].p) || "", folders[i].filename))) continue;
+        if (usedFolders.includes(path.join(path.normalize(joinPaths(folders[i].p)), folders[i].filename)) || isIgnored(targetFolder, path.join(targetFolder, joinPaths(folders[i].p) || "", folders[i].filename))) continue;
       } catch (e) {
         this.error("Failed to check if file is ignored: {e}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
       }
       this.log("Deleting: {path}", {path: path.join(joinPaths(folders[i].p) || "", folders[i].filename)});
       try {
-        fs.rmSync(path.join(this.pluginsFolderPath, joinPaths(folders[i].p) || "", folders[i].filename), { recursive: true });
+        fs.rmSync(path.join(targetFolder, joinPaths(folders[i].p) || "", folders[i].filename), { recursive: true });
       } catch (e) {
-        this.errorState = "Failed to delete unneeded plugin config folder: " + e != null ? e.code || e.message || e : e;
-        this.error("Failed to delete unneeded plugin config folder: {e}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
+        this.errorState = "Failed to delete unneeded "+shortName+" folder: " + e != null ? e.code || e.message || e : e;
+        this.error("Failed to delete unneeded "+shortName+" folder: {e}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
         continue;
       }
     }
-    this.log("Wrote plugin configs", null, {color: 6});
+    this.log("Wrote "+names+"", null, {color: 6});
   }
 
-  async getPlugins() {
-    for (var i in this.config.plugins) {
-      let plugin = this.config.plugins[i];
-      /** @type {File} */
-      let pluginData;
-      try {
-        pluginData = await this.main.vega.getPlugin(plugin);
-        fs.writeFileSync(path.join(this.pluginsFolderPath, plugin + ".dll"), Buffer.from(pluginData.data, "base64"));
-      } catch (e) {
-        this.errorState = "Failed to get plugin: '"+plugin+"'" + e != null ? e.code || e.message || e : e;
-        this.error("Failed to get plugin '{plugin}': {e}", {plugin: plugin, e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
-        continue;
-      }
-    }
-    let files = fs.readdirSync(this.pluginsFolderPath);
-    for (var i in files) {
-      let file = files[i];
-      if (file.endsWith(".dll") &&!this.config.plugins.includes(file.replace(".dll", ""))) {
-        this.log("Deleting: {file}", {file: file});
-        try {
-          fs.rmSync(path.join(this.pluginsFolderPath, file), {recursive: true});
-        } catch (e) {
-          this.errorState = "Failed to delete unneeded plugin: " + e != null ? e.code || e.message || e : e;
-          this.error("Failed to delete unneeded plugin: {e}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
-          continue;
-        }
-      }
-    }
-    this.log("Installed plugins", null, {color: 6});
-  }
 
-  async getCustomAssemblies() {
-    for (var i in this.config.customAssemblies) {
-      let customAssembly = this.config.customAssemblies[i];
-      /** @type {File} */
-      let customAssemblyData;
-      try {
-        customAssemblyData = await this.main.vega.getCustomAssembly(customAssembly);
-        fs.writeFileSync(path.join(this.serverCustomAssembliesFolder, customAssembly + ".dll"), Buffer.from(customAssemblyData.data, "base64"));
-      } catch (e) {
-        this.errorState = "Failed to get custom assembly '"+customAssembly+"': " + e != null ? e.code || e.message || e : e;
-        this.error("Failed to get custom assembly '{customAssembly}': {e}", {customAssembly: customAssembly, e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
-        continue;
-      }
-    }
-    this.log("Installed custom Assemblies", null, {color: 6});
-  }
 
-  async getDependencies() {
-    let targetFolder = path.join(this.pluginsFolderPath, "dependencies");
-    try {
-      if (!fs.existsSync(targetFolder)) fs.mkdirSync(targetFolder, { recursive: true });
-    } catch (e) {
-      this.errorState = "Failed to create dependencies folder: " + e != null ? e.code || e.message || e : e;
-      this.error("Failed to create dependencies folder: {e}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
-      return;
-    }
-    for (var i in this.config.dependencies) {
-      let dependency = this.config.dependencies[i];
-      /** @type {File} */
-      let dependencyData;
-      try {
-        dependencyData = await this.main.vega.getDependency(dependency);
-        fs.writeFileSync(path.join(targetFolder, dependency + ".dll"), Buffer.from(dependencyData.data, "base64"));
-      } catch (e) {
-        this.errorState = "Failed to get dependency '"+dependency+"': " + e != null ? e.code || e.message || e : e;
-        this.error("Failed to get dependency '{dependency}': {e}", {dependency: dependency, e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
-        continue;
-      }
-    }
-    this.log("Installed dependencies", null, {color: 6});
+  async getPluginConfigFiles() {
+    await this.getConfigs.bind(this)("pluginConfig");
+    this.pluginLockfiles.clear();
   }
 
   async getDedicatedServerConfigFiles() {
-    /** @type {File[]} */
-    let files;
-    try {
-      files = await this.main.vega.getDedicatedServerConfiguration(this.config.id);
-    } catch (e) {
-      this.errorState = "Failed to get plugin configs: " + e != null ? e.code || e.message || e : e;
-      return this.error("Failed to get plugin configs: {e}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
-    }
-    let usedFolders = [];
-    for (var x in files) {
-      /** @type {File} */
-      let file = files[x];
-      let filePath = path.join(this.serverConfigsFolder, joinPaths(file.path), file.name);
-      if (!usedFolders.includes(joinPaths(file.path))) usedFolders.push(joinPaths(file.path));
-      this.log("Writing: {path}", { path: joinPaths(file.path) + path.sep + file.name });
-      try {
-        if (!fs.existsSync(path.parse(filePath).dir)) fs.mkdirSync(path.parse(filePath).dir, { recursive: true });
-      } catch (e) {
-        this.errorState = "Failed to create dedicated server config directory: " + e != null ? e.code || e.message || e : e;
-        this.error("Failed to create dedicated server config directory: {e}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
-        continue;
-      }
-      try {
-        if (fs.existsSync(filePath) && fs.readFileSync(filePath, { encoding: "base64" }) == file.data) continue;
-        this.ignoreConfigFilePaths.push(path.join(joinPaths(file.path), file.name));
-        fs.writeFileSync(filePath, file.data, { encoding: "base64" });
-      } catch (e) {
-        this.errorState = "Failed to create dedicated server config directory: " + e != null ? e.code || e.message || e : e;
-        this.error("Failed to write dedicated server config file: {e}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
-        continue;
-      }
-    }
-    /** @type Array<> */
-    var currentFiles = readFolder(this.serverConfigsFolder, null, true);
-    let folders = currentFiles.filter((x) => x.isDir);
-    currentFiles = currentFiles.filter((x) => !x.isDir);
-    for (var i in currentFiles) {
-      let file = currentFiles[i];
-      let safe = false;
-      for (x in files) {
-        let alt = files[x];
-        if (path.join(joinPaths(file.p) || "./", file.filename) == path.join(joinPaths(alt.path), alt.name)) {
-          safe = true;
-          break;
-        }
-      }
-      try {
-        if (!safe) {
-          this.log("Deleting: {path}", {path: path.join(joinPaths(file.p) || "", file.filename )});
-          this.ignoreConfigFilePaths.push(path.join(joinPaths(file.p) || "", file.filename));
-          fs.rmSync(path.join(this.serverConfigsFolder, joinPaths(file.p) || "",file.filename), { recursive: true });
-        }
-      } catch (e) {
-        this.errorState = "Failed to delete unneeded dedicated server config file: " + e != null ? e.code || e.message || e : e;
-        this.error("Failed to delete unneeded dedicated server config file: {e}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
-        continue;
-      }
-    }
-    for (i in folders) {
-      if (usedFolders.includes(path.join(path.normalize(joinPaths(folders[i].p)), folders[i].filename))) continue;
-      this.log("Deleting: {path}", {path: path.join(joinPaths(folders[i].p) || "", folders[i].filename)});
-      try {
-        fs.rmSync(path.join(this.serverConfigsFolder, joinPaths(folders[i].p) || "", folders[i].filename), { recursive: true });
-      } catch (e) {
-        this.errorState = "Failed to delete unneeded dedicated server config folder: " + e != null ? e.code || e.message || e : e;
-        this.error("Failed to delete unneeded dedicated server config folder: {e}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
-        continue;
-      }
-    }
-    this.log("Wrote dedicated server configs", null, {color: 6});
+    await this.getConfigs.bind(this)("serverConfig");
+    this.configLockfiles.clear();
   }
 
   async getGlobalDedicatedServerConfigFiles() {
-    /** @type {File[]} */
-    let files;
+    await this.getConfigs.bind(this)("globalServerConfig");
+    this.globalConfigLockfiles.clear();
+  }
+
+
+
+
+  async grabAssemblies (type) {
+    let data;
+    let targetFolder
+    let names;
+    let shortName;
+    let property;
+    let ignoreExisting = false;
+    if (type == "dependency") {
+      targetFolder = path.join(this.pluginsFolderPath, "dependencies");
+      property = "dependencies";
+      names = "Dependencies";
+      shortName = "Dependency";
+    } else if (type == "plugin") {
+      targetFolder = this.pluginsFolderPath;
+      names = "Plugins";
+      property = "plugins";
+      shortName = "Plugin";
+    } else if (type == "customAssembly") {
+      targetFolder = this.serverCustomAssembliesFolder;
+      names = "Custom Assemblies";
+      property = "customAssemblies";
+      shortName = "Custom Assembly";
+      ignoreExisting = true;
+    }
     try {
-      files = await this.main.vega.getGlobalDedicatedServerConfiguration(this.config.id);
+      data = await this.main.vega.getAssemblies(type, this.config.id);
     } catch (e) {
-      return this.error("Failed to get global configs: {e}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
+      this.errorState = "Failed to get "+names+": " + e != null ? e.code || e.message || e : e;
+      this.error("Failed to get {subType}: {e}", {subType: names, e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
+      return;
     }
-    let usedFolders = [];
-    for (var x in files) {
-      /** @type {File} */
-      let file = files[x];
-      let filePath = path.join(this.globalDedicatedServerConfigFiles, joinPaths(file.path), file.name);
-      if (!usedFolders.includes(joinPaths(file.path))) usedFolders.push(joinPaths(file.path));
-      this.log("Writing: {path}", { path: joinPaths(file.path) + path.sep + file.name });
-      try {
-        if (!fs.existsSync(path.parse(filePath).dir)) fs.mkdirSync(path.parse(filePath).dir, { recursive: true });
-      } catch (e) {
-        this.errorState = "Failed to create global dedicated server config directory: " + e != null ? e.code || e.message || e : e;
-        this.error("Failed to create global dedicated server config directory: {e}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
-        continue;
-      }
-      try {
-        if (fs.existsSync(filePath) && fs.readFileSync(filePath, { encoding: "base64" }) == file.data) continue;
-        this.ignoreConfigFilePaths.push(path.join(joinPaths(file.path), file.name));
-        fs.writeFileSync(filePath, file.data, { encoding: "base64" });
-      } catch (e) {
-        this.errorState = "Failed to write global dedicated server config file: " + e != null ? e.code || e.message || e : e;
-        this.error("Failed to write global dedicated server config file: {e}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
-        continue;
-      }
+    /** @type Map<string, import("./classes")["FileInfo"]["prototype"]> */
+    let expected = new Map();
+    for (i in data) {
+      let assembly = data[i];
+      expected.set(assembly.name, assembly);
     }
-    /** @type Array<> */
-    var currentFiles = readFolder(this.globalDedicatedServerConfigFiles, null, true);
-    let folders = currentFiles.filter((x) => x.isDir);
-    currentFiles = currentFiles.filter((x) => !x.isDir);
-    for (var i in currentFiles) {
-      let file = currentFiles[i];
-      let safe = false;
-      for (x in files) {
-        let alt = files[x];
-        if (path.join(joinPaths(file.p) || "./", file.filename) == path.join(joinPaths(alt.path), alt.name)) {
-          safe = true;
-          break;
+    let found = [];
+    if (!fs.existsSync(targetFolder)) fs.mkdirSync(targetFolder, {recursive: true});
+    let files = fs.readdirSync(targetFolder);
+    for (let i in files) {
+      let file = files[i];
+      let stats = fs.statSync(path.join(targetFolder, file));
+      if (!stats.isFile()) continue;
+      let name = file.replace(".dll", "");
+      if (file.endsWith(".dll") && !expected.has(name) && !ignoreExisting) {
+        this.log("Deleting: {file}", {file: file});
+        try {
+          fs.rmSync(path.join(targetFolder, file), {recursive: true});
+        } catch (e) {
+          this.errorState = "Failed to delete unneeded "+shortName+": " + e != null ? e.code || e.message || e : e;
+          this.error("Failed to delete unneeded "+shortName+": {e}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
+          continue;
         }
-      }
-      try {
-        if (!safe) {
-          this.log("Deleting: {path}", {path: path.join(joinPaths(file.p) || "", file.filename )});
-          this.ignoreConfigFilePaths.push(path.join(joinPaths(file.p) || "", file.filename));
-          fs.rmSync(path.join(this.globalDedicatedServerConfigFiles, joinPaths(file.p) || "",file.filename), { recursive: true });
+      } else if (file.endsWith(".dll") && expected.has(name)) {
+        let md5;
+        try {
+          md5 = await loadMD5(path.join(targetFolder, file));
+        } catch (e) {
+          this.errorState = "Failed to get "+shortName+" MD5: " + e != null ? e.code || e.message || e : e;
+          this.error("Failed to get "+shortName+" MD5: {e}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e, path: path.join(targetFolder, file)});
+          continue;
         }
-      } catch (e) {
-        this.errorState = "Failed to delete unneeded global dedicated server config file: " + e != null ? e.code || e.message || e : e;
-        this.error("Failed to delete unneeded global dedicated server config file: {e}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
-        continue;
+        if (expected.get(name).md5 == md5) found.push(name);
       }
     }
-    for (i in folders) {
-      if (usedFolders.includes(path.join(path.normalize(joinPaths(folders[i].p)), folders[i].filename))) continue;
-      this.log("Deleting: {path}", {path: path.join(joinPaths(folders[i].p) || "", folders[i].filename)});
-      try {
-        fs.rmSync(path.join(this.globalDedicatedServerConfigFiles, joinPaths(folders[i].p) || "", folders[i].filename), { recursive: true });
-      } catch (e) {
-        this.errorState = "Failed to delete unneeded global dedicated server config folder: " + e != null ? e.code || e.message || e : e;
-        this.error("Failed to delete unneeded global dedicated server config folder: {e}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
-        continue;
+    for (let i in data) {
+      let assembly = data[i];
+      if (!found.includes(assembly.name)) {
+        this.log("Updating: {name}", {name: assembly.name, subtype: type});
+        try {
+          await this.main.vega.downloadFile("assemblies", type, assembly.name, this, null);
+        } catch (e) {
+          this.errorState = "Failed to download "+shortName+" '"+assembly.name+"': " + e != null ? e.code || e.message || e : e;
+          this.error("Failed to download "+shortName+" '{name}': {e}", {name: assembly.name, e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
+          continue;
+        }
+      } else {
+        this.log(shortName+" up to date: {name}", {name: assembly.name, subtype: type});
       }
     }
-    this.log("Wrote dedicated server configs", null, {color: 6});
+    this.log("Installed "+names, null, {color: 6});
+  }
+
+  async getPlugins() {
+    await this.grabAssemblies.bind(this)("plugin");
+  }
+
+  async getCustomAssemblies() {
+    await this.grabAssemblies.bind(this)("customAssembly");
+  }
+
+  async getDependencies() {
+    await this.grabAssemblies.bind(this)("dependency");
   }
 
   async configure() {
@@ -1249,7 +1208,7 @@ class Server {
     this.stateUpdate();
   }
 
-  async update() {
+  async update(skipConfig) {
     if (this.state.updating) return;
     this.state.updating = true;
     this.stateUpdate();
@@ -1271,7 +1230,7 @@ class Server {
       return;
     }
     try {
-      await this.configure();
+      if (!skipConfig) await this.configure();
     } catch (e) {
       this.errorState = "Failed to update server: " + e != null ? e.code || e.message || e : e;
       this.error("Failed to get custom assemblies: {e}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
@@ -2516,6 +2475,172 @@ class File {
   }
 }
 
+
+
+
+class FileInfo {
+  /** @type string */
+  md5;
+
+  /** @type string */
+  name = "";
+
+  /** @type Array<string> */
+  path = null;
+
+  /** @type string */
+  type = "";
+
+  /**
+   * 
+   * @param {FileType} fileType 
+   */
+  constructor (fileType) {
+      this.md5 = fileType.md5;
+      this.type = fileType.subtype;
+      if (fileType instanceof ConfigFile) this.path = fileType.path;
+      else this.path = fileType.filePath;
+      this.name = fileType.name;
+  }
+}
+module.exports.FileInfo = FileInfo;
+
+class downloadSettings {
+  /* @type {string} */
+  url;
+
+  /* @type {string} */
+  name;
+
+  /* @type {string} */
+  password;
+
+  /* @type {string} */
+  path;
+
+  /* @type {string} */
+  type;
+
+  /* @type {string} */
+  subtype;
+
+  /* @type {string} */
+  id;
+
+  /* @type {string} */
+  outputPath;
+
+  constructor (){
+
+  }
+}
+
+class fileDownload {
+
+  /** @type string */
+  id;
+
+  /** @type downloadSettings */
+  config;
+
+  resolves = {resolve: null, reject: null};
+
+  solved = false;
+
+  /** @type ChildProcess */
+  proc;
+
+  /** @type Vega */
+  vega;
+
+  /**
+   * 
+   * @param {Vega} vega 
+   * @param {object} resolves 
+   * @param {string} type 
+   * @param {string} name 
+   * @param {Server} server 
+   * @param {string} spath 
+   */
+  constructor(vega, resolves, type, subtype, name, server, spath) {
+      this.vega = vega;
+      this.resolves = resolves;
+      this.id = vega.randomFileRequestId();
+      vega.downloadRequests.set(this.id, this);
+      this.config = new downloadSettings();
+      this.config.type = type;
+      this.config.subtype = subtype;
+      this.config.password = vega.main.config.vega.password;
+      this.config.id = server.config.id;
+      this.config.name = name;
+      this.config.url = "http://"+vega.main.config.vega.host+":"+vega.httpPort+"/download";
+      if (type == "assemblies") {
+        if (subtype == "plugin") {
+            this.config.path = null;
+            this.config.outputPath = path.join(server.pluginsFolderPath, name+".dll");
+        } else if (subtype == "dependency") {
+            this.config.path = null;
+            this.config.outputPath = path.join(server.pluginsFolderPath, "dependencies", name+".dll");
+        } else if (subtype == "customAssembly") {
+            this.config.path = null;
+            this.config.outputPath = path.join(server.serverCustomAssembliesFolder, name+".dll");
+        }
+      } else if (type = "configFile") {
+        if (subtype == "pluginConfig") {
+          this.config.path = JSON.stringify(spath);
+          this.config.outputPath = path.join(server.pluginsFolderPath, joinPaths(spath), name);
+        } else if (subtype == "serverConfig") {
+          this.config.path = JSON.stringify(spath);
+          this.config.outputPath = path.join(server.serverConfigsFolder, joinPaths(spath), name);
+        } else if (subtype == "globalServerConfig") {
+          this.config.path = JSON.stringify(spath);
+          this.config.outputPath = path.join(server.globalDedicatedServerConfigFiles, joinPaths(spath), name);
+        }
+      }
+  }
+
+  start () {
+    try {
+      this.proc = fork(path.join(__dirname, "download.js"));
+      this.proc.on("message", this.onDownloadProcMess.bind(this));
+      this.proc.on("close", this.onDownloadProcClose.bind(this));
+      this.proc.on("error", this.onDownloadProcError.bind(this));
+    } catch (e) {
+        resolves.reject("Failed to fork download process:\n"+e);
+    }
+  }
+
+  async onDownloadProcMess (m) {
+      if (m.type == "ready") {
+          this.proc.send(Object.assign(this.config, {mtype: "config"}));
+      } else if (m.type == "error") {
+          if (this.solved) return;
+          this.solved = true;
+          this.resolves.reject(m.message);
+          this.proc.kill();
+      }
+  }
+
+  async onDownloadProcClose (code) {
+      this.proc = null;
+      if (this.solved) return;
+      this.vega.downloadRequests.delete(this.id);
+      this.solved = true;
+      if (code != 0) this.resolves.reject("Download exited with non-zero status code: "+code);
+      this.resolves.resolve();
+  }
+
+  async onDownloadProcError (e) {
+    console.error(e);
+  }
+
+  kill () {
+      if (this.proc != null) this.proc.kill();
+  }
+}
+
+
+
 class Vega {
   /** @type {NVLA} */
   main;
@@ -2529,6 +2654,9 @@ class Vega {
   /** @type {Map<string, {resolve: function, reject: function}>} */
   fileRequests = new Map();
 
+  /** @type {Map<string, fileDownload>} */
+  downloadRequests = new Map();
+
   /** @type {messageHandler} */
   messageHandler;
 
@@ -2537,6 +2665,9 @@ class Vega {
 
   /** @type NVLA["logger"] */
   logger;
+
+  /** @type number */
+  httpPort;
 
   /**
    * @param {NVLA} main
@@ -2578,6 +2709,7 @@ class Vega {
   }
 
   async connect() {
+    if (this.main.stopped) return;
     this.log("Connecting to Vega", null, { color: 6 });
     this.client = new Client();
     this.client.connect({
@@ -2602,6 +2734,7 @@ class Vega {
 
   async onMessage(m, s) {
     try {
+      if (this.main.stopped) return;
       this.messageHandler.handle(m, s);
     } catch (e) {
       this.error("Failed to handle message: {e} {messageType}", { e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e, messageType: m.type });
@@ -2617,20 +2750,61 @@ class Vega {
     return id;
   }
 
+  /**
+   * @returns {string}
+   */
+  randomDownloadId() {
+    let id = Math.random().toString(36).slice(2);
+    if (this.downloadRequests.has(id)) return this.randomDownloadId();
+    return id;
+  }
+
   async onAuthenticated() {
     this.connected = true;
     this.client.sendMessage(new mt.servers(this));
   }
 
   /**
-   * @param {string} serverId
-   * @returns Promise<Array<File>>
+   * @param {string} type 
+   * @param {string} name 
+   * @param {Server} server 
+   * @param {Array<string>} path 
    */
-  async getPluginConfiguration(serverId) {
+  downloadFile (type, subtype, name, server, spath) {
     if (!this.connected) throw "Not connected to Vega";
-    this.log("Requesting plugin configuration: {serverId}", { serverId: serverId });
+    /** @type downloadSettings */
+
+    let resolves = {};
+    let promise = new Promise(function (resolve, reject) {
+      this.resolve = resolve;
+      this.reject = reject;
+    }.bind(resolves));
+    
+    
+    let download;
+    try {
+      download = new fileDownload(this, resolves, type, subtype, name, server, spath);
+      download.start();
+    } catch (e) {
+      console.error(e);
+      setTimeout(resolves.reject.bind(null, "Failed to build download process:\n"+e), 10);
+      return promise;
+    }
+
+    if (this.main.config.debug) this.log("Requesting file download: {settings}", { settings: download.config });
+
+    return promise;
+  }
+
+  /**
+   * @param {string} plugin
+   * @returns Promise<File>
+   */
+  async getAssemblies(type, id) {
+    if (!this.connected) throw "Not connected to Vega";
+    this.log("Requesting assemblies of type: {subtype}", { subtype: type });
     return new Promise((resolve, reject) => {
-      this.client.sendMessage(new mt.pluginConfigurationRequest(this, { resolve: resolve, reject: reject }, serverId));
+      this.client.sendMessage(new mt.assembliesRequest(this, { resolve: resolve, reject: reject }, type, id));
     });
   }
 
@@ -2638,60 +2812,11 @@ class Vega {
    * @param {string} plugin
    * @returns Promise<File>
    */
-  async getPlugin(plugin) {
+  async getConfigs(type, id) {
     if (!this.connected) throw "Not connected to Vega";
-    this.log("Requesting plugin: {plugin}", { plugin: plugin });
+    this.log("Requesting configs of type: {subtype}", { subtype: type });
     return new Promise((resolve, reject) => {
-      this.client.sendMessage(new mt.pluginRequest(this, { resolve: resolve, reject: reject }, plugin));
-    });
-  }
-
-  /**
-   * @param {string} plugin
-   * @returns Promise<File>
-   */
-  async getCustomAssembly(customAssembly) {
-    if (!this.connected) throw "Not connected to Vega";
-    this.log("Requesting custom assembly: {customAssembly}", { customAssembly: customAssembly });
-    return new Promise((resolve, reject) => {
-      this.client.sendMessage(new mt.customAssemblyRequest(this, { resolve: resolve, reject: reject }, customAssembly));
-    });
-  }
-
-  /**
-   * @param {string} plugin
-   * @returns Promise<File>
-   */
-  async getDependency(dependency) {
-    if (!this.connected) throw "Not connected to Vega";
-    this.log("Requesting dependency: {dependency}", { dependency: dependency });
-    return new Promise((resolve, reject) => {
-      this.client.sendMessage(new mt.dependencyRequest(this, { resolve: resolve, reject: reject }, dependency));
-    });
-  }
-
-  /**
-   * @param {string} serverId
-   * @returns Promise<Array<File>>
-   */
-  async getDedicatedServerConfiguration(serverId) {
-    if (!this.connected) throw "Not connected to Vega";
-    this.log.bind(this)("Requesting dedicated server configuration: {serverId}", { serverId: serverId });
-    return new Promise((resolve, reject) => {
-      this.client.sendMessage(new mt.dedicatedServerConfigurationRequest(this, { resolve: resolve, reject: reject }, serverId));
-    });
-  }
-
-  /**
-   * @param {string} serverId
-   * @returns Promise<Array<File>>
-   */
-  async getGlobalDedicatedServerConfiguration(serverId) {
-    if (!this.connected) throw "Not connected to Vega";
-    this.log.bind(this)("Requesting global dedicated server configuration: {serverId}", { serverId: serverId });
-    return new Promise((resolve, reject) => {
-      this.client.sendMessage(
-        new mt.globalDedicatedServerConfigurationRequest(this, { resolve: resolve, reject: reject }, serverId));
+      this.client.sendMessage(new mt.configsRequest(this, { resolve: resolve, reject: reject }, type, id));
     });
   }
 
@@ -2703,6 +2828,11 @@ class Vega {
     this.fileRequests.forEach((v, k) => {
       v.reject("Vega Connection closed");
       this.fileRequests.delete(k);
+    });
+    this.downloadRequests.forEach((v, k) => {
+      v.resolves.reject("Vega Connection closed");
+      v.kill();
+      this.downloadRequests.delete(k);
     });
   }
 
@@ -2721,4 +2851,5 @@ module.exports = {
   joinPaths: joinPaths,
   serverState: serverState,
   addresses: addresses,
+  FileInfo: FileInfo,
 };
