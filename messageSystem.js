@@ -2,12 +2,12 @@ const fs = require("fs");
 const pingSystem = require("./pingSystem");
 const mt = require("./messageTemplates.js");
 const path = require("path");
+const Classes = require("./classes");
 
-function joinPaths(arr) {
-    var p = "";
-    for (var i in arr) {
-      p = path.join(p, arr[i]);
-    }
+function joinPaths (arr) {
+    var p = '';
+    if (arr.length == 1 && arr[0].trim() == "") return "";
+    for (let i in arr) p = path.join(p, arr[i]);
     return p;
 }
 
@@ -455,58 +455,15 @@ classes.set(deleteAssembly.name, deleteAssembly);
 
 
 
-class updateConfig extends messageType {
-    /** @type {string} Server id if specific*/
-    id;
-
-    /**
-     * @param main {messageHandler}
-     * @param obj {object} */
-    constructor(main, obj) {
-        super(main, obj);
-        this.id = obj.id;
-    }
-
-    /** 
-     * @param {import("./socket")["Client"]["prototype"]} s */
-     async execute(s) {
-        if (this.id != null) {
-            if (this.main.ServerManager.servers.has(this.id)) {
-                let server = this.main.ServerManager.servers.get(this.id);  
-                try {
-                    await server.getDedicatedServerConfigFiles();
-                } catch (e) {
-                    this.error("Failed to update config files for server {serverId}", {serverId: this.id});
-                }
-            }
-        } else {
-            this.main.ServerManager.servers.forEach(async function (server, id) {
-                try {
-                    await server.getDedicatedServerConfigFiles();
-                } catch (e) {
-                    this.error("Failed to update config files for server {serverId}", {serverId: id});
-                }
-            }.bind(this));
-        }
-    }
-}
-classes.set(updateConfig.name, updateConfig);
-
 class updateFile extends messageType {
     /** @type {string} Server id*/
     id;
 
-    /** @type {Array<string>} file path */
-    path;
-
-    /** @type {string} file name */
-    name;
-
     /** @type {string} file type */
     fileType;
 
-    /** @type {string} file data */
-    data;
+    /** @type {Classes.FileInfo} file path */
+    file;
 
     /**
      * @param main {messageHandler}
@@ -514,15 +471,11 @@ class updateFile extends messageType {
     constructor(main, obj) {
         super(main, obj);
         if (obj.id == null || obj.id == undefined) throw "type 'updateFile' requires 'id'";
-        if (obj.path == null || obj.path == undefined) throw "type 'updateFile' requires 'path'";
-        if (obj.name == null || obj.name == undefined) throw "type 'updateFile' requires 'name'";
         if (obj.fileType == null || obj.fileType == undefined) throw "type 'updateFile' requires 'fileType'";
-        if (obj.data == null || obj.data == undefined) throw "type 'updateFile' requires 'data'";
+        if (obj.file == null || obj.file == undefined) throw "type 'updateFile' requires 'file'";
         this.id = obj.id;
-        this.path = obj.path;
-        this.name = obj.name;
         this.fileType = obj.fileType;
-        this.data = obj.data;
+        this.file = obj.file;
     }
 
     /** 
@@ -530,35 +483,27 @@ class updateFile extends messageType {
      async execute(s) {
         if (this.main.ServerManager.servers.has(this.id)) {
             let server = this.main.ServerManager.servers.get(this.id);
-            let file = this;
-            let filePath;
-            switch (this.fileType) {
-                case 'globalConfig':
-                    filePath = path.join(server.globalDedicatedServerConfigFiles, joinPaths(file.path), file.name);
-                    break;
-                case 'serverConfig':
-                    filePath = path.join(server.serverConfigsFolder, joinPaths(file.path), file.name);
-                    break;
-                case 'pluginConfig':
-                    filePath = path.join(server.pluginsFolderPath, joinPaths(file.path), file.name);
-                  break;
-                default:
-                  this.error("Unknown file type {type}", {type: this.fileType});
-                  return;
-            }
-            server.log("Writing: {path}", { path: joinPaths(file.path) + path.sep + file.name });
             try {
-                if (!fs.existsSync(path.parse(filePath).dir)) fs.mkdirSync(path.parse(filePath).dir, { recursive: true });
+                let reset;
+                let lockFiles;
+                if (this.fileType == "globalServerConfig") {
+                    reset = server.resetGlobalServerConfigWatcher.bind(server);
+                    lockFiles = server.globalConfigLockfiles;
+                } else if (this.fileType == "serverConfig") { 
+                    reset = server.resetServerConfigWatcher.bind(server);
+                    lockFiles = server.configLockfiles;
+                } else if (this.fileType == "pluginConfig") {
+                    reset = server.resetPluginConfigWatcher.bind(server);
+                    lockFiles = server.pluginLockfiles;
+                } else {
+                    server.error("Remote update - Unknown file type {ftype}", {ftype: this.fileType});
+                    return;
+                }
+                await server.getConfig(this.fileType, this.file);
+                await reset();
+                lockFiles.clear();
             } catch (e) {
-                server.error("Failed to create global dedicated server config directory: {e}", {e: e != null ? e.code || e.message : e, stack: e != null ? e.stack : e});
-                return;
-            }
-            try {
-                if (fs.existsSync(filePath) && fs.readFileSync(filePath, { encoding: "base64" }) == file.data) return;
-                //server.ignoreConfigFilePaths.push(path.join(joinPaths(file.path), file.name));
-                fs.writeFileSync(filePath, file.data, { encoding: "base64" });
-            } catch (e) {
-                server.error("Failed to write global dedicated server config file: {e}", {e: e != null ? e.code || e.message : e, stack: e != null ? e.stack : e});
+                server.error("Failed to perform config file update: {e}", {e: e != null ? e.code || e.message : e, stack: e != null ? e.stack : e});
                 return;
             }
         }
@@ -599,17 +544,26 @@ class deleteFile extends messageType {
      async execute(s) {
         if (this.main.ServerManager.servers.has(this.id)) {
             let server = this.main.ServerManager.servers.get(this.id);
+            if (server == null) return;
             let file = this;
             let filePath;
+            let lockFiles;
+            let resetListener;
             switch (this.fileType) {
-                case 'globalConfig':
+                case 'globalServerConfig':
                     filePath = path.join(server.globalDedicatedServerConfigFiles, joinPaths(file.path), file.name);
+                    lockFiles = server.globalConfigLockfiles;
+                    resetListener = server.resetGlobalServerConfigWatcher.bind(server);
                     break;
                 case 'serverConfig':
                     filePath = path.join(server.serverConfigsFolder, joinPaths(file.path), file.name);
+                    lockFiles = server.configLockfiles;
+                    resetListener = server.resetServerConfigWatcher.bind(server);
                     break;
                 case 'pluginConfig':
                     filePath = path.join(server.pluginsFolderPath, joinPaths(file.path), file.name);
+                    lockFiles = server.pluginLockfiles;
+                    resetListener = server.resetPluginConfigWatcher.bind(server);
                   break;
                 default:
                   this.error("Unknown file type {type}", {type: this.fileType});
@@ -619,16 +573,23 @@ class deleteFile extends messageType {
             if (!fs.existsSync(path.parse(filePath).dir)) return;
             try {
                 if (!fs.existsSync(filePath)) return;
-                //server.ignoreConfigFilePaths.push(path.join(joinPaths(file.path), file.name));
+                if (!lockFiles.has(path.join(joinPaths(file.path), file.name))) lockFiles.set(path.join(joinPaths(file.path), file.name), 0);
+                let lockfile = lockFiles.get(path.join(joinPaths(file.path), file.name))+1;
+                lockFiles.set(path.join(joinPaths(file.path), file.name), lockfile);
                 fs.rmSync(filePath);
             } catch (e) {
                 server.error("Failed to delete global dedicated server config file: {e}", {e: e != null ? e.code || e.message : e, stack: e != null ? e.stack : e});
                 return;
             }
+            resetListener();
+            lockFiles.clear();
         }
     }
 }
 classes.set(deleteFile.name, deleteFile);
+
+
+
 
 class consoleCommand extends messageType {
     /** @type {string} Server id*/

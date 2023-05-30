@@ -86,6 +86,7 @@ class updateFile {
         this.type = "updateFile";
         this.data = data;
         this.path = path;
+        if (this.path.length == 1 && this.path[0] == "") this.path = [];
         this.name = name;
         this.serverId = serverId;
         this.fileType = fileType;
@@ -114,6 +115,7 @@ class removeFile {
     constructor (serverId, path, name, fileType) {
         this.type = "removeFile";
         this.path = path;
+        if (this.path.length == 1 && this.path[0] == "") this.path = [];
         this.serverId = serverId;
         this.name = name;
         this.fileType = fileType;

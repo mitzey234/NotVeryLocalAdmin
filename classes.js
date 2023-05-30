@@ -183,11 +183,10 @@ function isDir(target) {
   }
 }
 
-function joinPaths(arr) {
-  var p = "";
-  for (var i in arr) {
-    p = path.join(p, arr[i]);
-  }
+function joinPaths (arr) {
+  var p = '';
+  if (arr.length == 1 && arr[0].trim() == "") return "";
+  for (let i in arr) p = path.join(p, arr[i]);
   return p;
 }
 
@@ -804,70 +803,87 @@ class Server {
     }
   }
 
+  async resetPluginConfigWatcher () {
+    if (this.pluginsFolderWatch != null) {
+      await this.pluginsFolderWatch.close();
+      this.pluginsFolderWatch = null;
+    }
+    this.pluginsFolderWatch = chokidar.watch(this.pluginsFolderPath, {ignoreInitial: true,persistent: true});
+    this.pluginsFolderWatch.on("all", this.onPluginConfigFileEvent.bind(this));
+    this.pluginsFolderWatch.on("error", e => this.error("Plugin Folder Watch Error: {e}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e}));
+  }
+
+  async resetServerConfigWatcher () {
+    if (this.configFolderWatch != null) {
+      await this.configFolderWatch.close();
+      this.configFolderWatch = null;
+    }
+    this.configFolderWatch = chokidar.watch(this.serverConfigsFolder, {ignoreInitial: true, persistent: true});
+    this.configFolderWatch.on("all", this.onConfigFileEvent.bind(this));
+    this.configFolderWatch.on("error", e => this.error("Config Folder Watch Error: {e}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e}));
+  }
+
+  async resetGlobalServerConfigWatcher () {
+    if (this.globalConfigFolderWatch != null) {
+      await this.globalConfigFolderWatch.close();
+      this.globalConfigFolderWatch = null;
+    }
+    this.globalConfigFolderWatch = chokidar.watch(this.globalDedicatedServerConfigFiles, {ignoreInitial: true, persistent: true});
+    this.globalConfigFolderWatch.on("all", this.onGlobalConfigFileEvent.bind(this));
+    this.globalConfigFolderWatch.on("error", e => this.error("Global Config Folder Watch Error: {e}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e}));
+  }
+
+
+
   async onGlobalConfigFileEvent(event, filePath) {
-    if (this.disableWatching) return;
-    filePath = path.relative(this.globalDedicatedServerConfigFiles, filePath);
-    try {
-      if (isIgnored(this.globalDedicatedServerConfigFiles, path.join(this.globalDedicatedServerConfigFiles, filePath))) return;
-    } catch (e) {
-      this.error("Failed to check if file is ignored: {e}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
-      return;
-    }
-    if (this.globalConfigLockfiles.has(filePath)) return;
-    if (event == "add" || event == "change") {
-      let p = path.parse(path.normalize(filePath)).dir.split(path.sep);
-      let name = path.parse(filePath).base;
-      //this.main.vega.client.sendMessage(new mt.updateFile(this.config.id, p, name, fs.readFileSync(path.join(this.globalDedicatedServerConfigFiles, filePath)).toString("base64"), "GlobalConfigFile"));
-    } else if (event == "unlink") {
-      let p = path.parse(path.normalize(filePath)).dir.split(path.sep);
-      let name = path.parse(filePath).base;
-      //this.main.vega.client.sendMessage(new mt.removeFile(this.config.id, p, name, "GlobalConfigFile"));
-    }
-    this.log("Global Config file event: {event} {filePath}", { event: event, filePath: filePath }, { color: 6 });
+    this.configFileEvent("globalServerConfig", event, filePath);
   }
 
   async onConfigFileEvent(event, filePath) {
-    if (this.disableWatching) return;
-    filePath = path.relative(this.serverConfigsFolder, filePath);
-    try {
-      if (isIgnored(this.serverConfigsFolder, path.join(this.serverConfigsFolder, filePath))) return;
-    } catch (e) {
-      this.error("Failed to check if file is ignored: {e}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
-    }
-    if (this.configLockfiles.has(filePath)) return;
-    if (event == "add" || event == "change") {
-      let p = path.parse(path.normalize(filePath)).dir.split(path.sep);
-      let name = path.parse(filePath).base;
-      //this.main.vega.client.sendMessage(new mt.updateFile(this.config.id, p, name, fs.readFileSync(path.join(this.serverConfigsFolder, filePath)).toString("base64"), "ConfigFile"));
-    } else if (event == "unlink") {
-      let p = path.parse(path.normalize(filePath)).dir.split(path.sep);
-      let name = path.parse(filePath).base;
-      //this.main.vega.client.sendMessage(new mt.removeFile(this.config.id, p, name, "ConfigFile"));
-    }
-    this.log("Config file event: {event} {filePath}", { event: event, filePath: filePath }, { color: 6 });
+    this.configFileEvent("serverConfig", event, filePath);
   }
 
   async onPluginConfigFileEvent(event, filePath) {
+    this.configFileEvent("pluginConfig", event, filePath);
+  }
+
+  async configFileEvent (type, event, filePath) {
     if (this.disableWatching) return;
-    filePath = path.relative(this.pluginsFolderPath, filePath);
+    let targetFolder;
+    let lockfiles;
+    if (type == "pluginConfig") {
+      if (filePath.startsWith("dependencies") || filePath.endsWith(".dll")) return;
+      targetFolder = this.pluginsFolderPath;
+      lockfiles = this.pluginLockfiles;
+    } else if (type == "serverConfig") {
+      targetFolder = this.serverConfigsFolder;
+      lockfiles = this.configLockfiles;
+    } else if (type == "globalServerConfig") {
+      targetFolder = this.globalDedicatedServerConfigFiles;
+      lockfiles = this.globalConfigLockfiles;
+    }
+    filePath = path.relative(targetFolder, filePath);
     try {
-      if (isIgnored(this.pluginsFolderPath,path.join(this.pluginsFolderPath, filePath))) return;
+      if (isIgnored(targetFolder,path.join(targetFolder, filePath))) return;
     } catch (e) {
       this.error("Failed to check if file is ignored: {e}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
     }
     if (filePath.startsWith("dependencies") || filePath.endsWith(".dll")) return;
-    if (this.pluginLockfiles.has(filePath)) return;
+    if (lockfiles.has(filePath)) return;
     if (event == "add" || event == "change") {
       let p = path.parse(path.normalize(filePath)).dir.split(path.sep);
       let name = path.parse(filePath).base;
-      //this.main.vega.client.sendMessage(new mt.updateFile(this.config.id, p, name, fs.readFileSync(path.join(this.pluginsFolderPath, filePath)).toString("base64"), "PluginConfigFile"));
+      this.main.vega.client.sendMessage(new mt.updateFile(this.config.id, p, name, fs.readFileSync(path.join(targetFolder, filePath)).toString("base64"), type));
     } else if (event == "unlink") {
       let p = path.parse(path.normalize(filePath)).dir.split(path.sep);
       let name = path.parse(filePath).base;
-      //this.main.vega.client.sendMessage(new mt.removeFile(this.config.id, p, name, "PluginConfigFile"));
+      this.main.vega.client.sendMessage(new mt.removeFile(this.config.id, p, name, type));
     }
-    this.log("Plugin config file event: {event} {filePath}", { event: event, filePath: filePath }, { color: 6 });
+    this.log(type+" file event: {event} {filePath}", { event: event, filePath: filePath }, { color: 6 });
   }
+
+
+
 
   async getConfigs (type) {
     let targetFolder;
@@ -925,13 +941,11 @@ class Server {
         let lockfile = lockFiles.get(path.join(joinPaths(file.path), file.name))+1;
         lockFiles.set(path.join(joinPaths(file.path), file.name), lockfile);
         await this.main.vega.downloadFile("configFile", type, file.name, this, file.path);
-        if (await loadMD5(filePath) != file.md5) throw "MD5 mismatch";
-        lockfile = lockFiles.get(path.join(joinPaths(file.path), file.name))-1;
-        if (lockfile <= 0) lockFiles.delete(path.join(joinPaths(file.path), file.name));
-        else lockFiles.set(path.join(joinPaths(file.path), file.name), lockfile);
+        let localmd5 = await loadMD5(filePath);
+        if (localmd5 != file.md5) throw "MD5 mismatch: " + localmd5;
       } catch (e) {
-        this.errorState = "Failed to write "+shortName+" file: " + e != null ? e.code || e.message || e : e;
-        this.error("Failed to write "+shortName+" file: {e}\n{stack}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
+        this.errorState = "Failed to write "+shortName+" file ("+file.name+"): " + e != null ? e.code || e.message || e : e;
+        this.error("Failed to write "+shortName+" file ({name}): {e}\n{stack}", {name: file.name, e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
       }
     }
     /** @type Array<> */
@@ -956,9 +970,6 @@ class Server {
             let lockfile = lockFiles.get(path.join(joinPaths(file.p) || "", file.filename))+1;
             lockFiles.set(path.join(joinPaths(file.p) || "", file.filename), lockfile);
             fs.rmSync(path.join(targetFolder, joinPaths(file.p) || "", file.filename), { recursive: true });
-            lockfile = lockFiles.get(path.join(joinPaths(file.p) || "", file.filename))-1;
-            if (lockfile <= 0) lockFiles.delete(path.join(joinPaths(file.p) || "", file.filename));
-            else lockFiles.set(path.join(joinPaths(file.p) || "", file.filename), lockfile);    
           }
         } catch (e) {
           this.error("Failed to check if file is ignored: {e}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
@@ -987,20 +998,83 @@ class Server {
     this.log("Wrote "+names+"", null, {color: 6});
   }
 
+  /**
+   * @param {string} type 
+   * @param {FileInfo} file 
+   * @returns 
+   */
+  async getConfig (type, file) {
+    let targetFolder;
+    let names;
+    let shortName;
+    let usedFolders = [];
+    let lockFiles;
+    if (type == "pluginConfig") {
+      targetFolder = this.pluginsFolderPath;
+      names = "Plugin Configs";
+      shortName = "Plugin Config";
+      usedFolders.push("dependencies");
+      lockFiles = this.pluginLockfiles;
+    } else if (type == "serverConfig") {
+      targetFolder = this.serverConfigsFolder;
+      names = "Server Configs";
+      shortName = "Server Config";
+      lockFiles = this.configLockfiles;
+    } else if (type == "globalServerConfig") {
+      targetFolder = this.globalDedicatedServerConfigFiles;
+      names = "Global Server Configs";
+      shortName = "Global Server Config";
+      lockFiles = this.globalConfigLockfiles;
+    } else {
+      throw "Invalid type";
+    }
+    let filePath = path.join(targetFolder, joinPaths(file.path), file.name);
+    if (!usedFolders.includes(joinPaths(file.path))) usedFolders.push(joinPaths(file.path));
+    try {
+      if (!fs.existsSync(path.parse(filePath).dir)) fs.mkdirSync(path.parse(filePath).dir, { recursive: true });
+    } catch (e) {
+      this.errorState = "Failed to create "+shortName+" directory: " + e != null ? e.code || e.message || e : e;
+      this.error("Failed to create "+shortName+" directory: {e}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
+      return;
+    }
+    try {
+      if (fs.existsSync(filePath) && await loadMD5(filePath) == file.md5) {
+        this.log("Up to date: {path}", { path: joinPaths(file.path) + path.sep + file.name });
+        return;
+      }
+      this.log("Writing ("+file.md5+"): {path}", { path: joinPaths(file.path) + path.sep + file.name });
+      if (!lockFiles.has(path.join(joinPaths(file.path), file.name))) lockFiles.set(path.join(joinPaths(file.path), file.name), 0);
+      let lockfile = lockFiles.get(path.join(joinPaths(file.path), file.name))+1;
+      lockFiles.set(path.join(joinPaths(file.path), file.name), lockfile);
+      await this.main.vega.downloadFile("configFile", type, file.name, this, file.path);
+      if (await loadMD5(filePath) != file.md5) throw "MD5 mismatch";
+      lockfile = lockFiles.get(path.join(joinPaths(file.path), file.name))-1;
+      if (lockfile <= 0) lockFiles.delete(path.join(joinPaths(file.path), file.name));
+      else lockFiles.set(path.join(joinPaths(file.path), file.name), lockfile);
+    } catch (e) {
+      this.errorState = "Failed to write "+shortName+" file ("+file.name+"): " + e != null ? e.code || e.message || e : e;
+      this.error("Failed to write "+shortName+" file ({name}): {e}\n{stack}", {name: file.name, e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
+    }
+  }
+
+
 
 
   async getPluginConfigFiles() {
     await this.getConfigs.bind(this)("pluginConfig");
+    await this.resetPluginConfigWatcher();
     this.pluginLockfiles.clear();
   }
 
   async getDedicatedServerConfigFiles() {
     await this.getConfigs.bind(this)("serverConfig");
+    await this.resetServerConfigWatcher();
     this.configLockfiles.clear();
   }
 
   async getGlobalDedicatedServerConfigFiles() {
     await this.getConfigs.bind(this)("globalServerConfig");
+    await this.resetGlobalServerConfigWatcher();
     this.globalConfigLockfiles.clear();
   }
 
