@@ -99,7 +99,17 @@ async function evaluate(args) {
     } else if (command == "list") {
         console.log(chalk.yellow("Server List:"));
         NVLA.ServerManager.servers.forEach(function(server) {
-            console.log("[" + (server.process != null ? chalk.green("ACTIVE") : (server.config.disabled ? chalk.red("DISABLED") : chalk.red("INACTIVE"))) + "]\t" + chalk.cyan(server.config.label + " - " + server.config.port + (server.players != null ? (" - " + server.players.length + " Players") : "") + (server.process != null && server.uptime != null ? " - Uptime: " + Math.floor((Date.now() - server.uptime) / 1000).toString().toHHMMSS() : "") + (server.roundStartTime != null ? " - Round Time: " + (Math.floor((Date.now() - server.roundStartTime) / 1000).toString().toHHMMSS()) : "")));
+            let state = chalk.red("INACTIVE");
+            if (server.state.updating) state = chalk.red("UPDATING");
+            if (server.state.restarting) state = chalk.yellow("RESTARTING");
+            if (server.state.stopping) state = chalk.yellow("STOPPING");
+            if (server.state.starting) state = chalk.yellow("STARTING");
+            if (server.state.running) state = chalk.green("ACTIVE");
+            if (server.state.installing) state = chalk.cyan("INSTALLING");
+            if (server.state.configuring) state = chalk.cyan("CONFIGURING");
+            if (server.state.idleMode) state = chalk.magenta("IDLE");
+            if (server.errorState != null) state = chalk.red("ERROR");
+            console.log("[" + state + "]\t" + chalk.cyan(server.config.label + " - " + server.config.port + (server.players != null ? (" - " + server.players.length + " Players") : "") + (server.process != null && server.uptime != null ? " - Uptime: " + Math.floor((Date.now() - server.uptime) / 1000).toString().toHHMMSS() : "") + (server.roundStartTime != null ? " - Round Time: " + (Math.floor((Date.now() - server.roundStartTime) / 1000).toString().toHHMMSS()) : "")));
         });
     } else if (command == "version" || command == "v") {
         console.log("Running NVLA - " + pack.version);

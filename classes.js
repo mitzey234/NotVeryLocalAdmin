@@ -1186,6 +1186,8 @@ class Server {
     } catch (e) {
       this.errorState = "Failed to get plugin configs: " + e != null ? e.code || e.message || e : e;
       this.error("Failed to get plugin configs: {e}", { e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e });
+      this.state.configuring = false;
+      this.stateUpdate();
       return;
     }
     try {
@@ -1193,6 +1195,8 @@ class Server {
     } catch (e) {
       this.errorState = "Failed to get dependencies: " + e != null ? e.code || e.message || e : e;
       this.error("Failed to get dependencies: {e}", { e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e });
+      this.state.configuring = false;
+      this.stateUpdate();
       return;
     }
     try {
@@ -1200,6 +1204,8 @@ class Server {
     } catch (e) {
       this.errorState = "Failed to get plugins: " + e != null ? e.code || e.message || e : e;
       this.error("Failed to get plugins: {e}", { e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e });
+      this.state.configuring = false;
+      this.stateUpdate();
       return;
     }
     try {
@@ -1207,6 +1213,8 @@ class Server {
     } catch (e) {
       this.errorState = "Failed to get custom assemblies: " + e != null ? e.code || e.message || e : e;
       this.error("Failed to get custom assemblies: {e}", { e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e });
+      this.state.configuring = false;
+      this.stateUpdate();
       return;
     }
     try {
@@ -1214,6 +1222,8 @@ class Server {
     } catch (e) {
       this.errorState = "Failed to get dedicated server configs: " + e != null ? e.code || e.message || e : e;
       this.error("Failed to get dedicated server configs: {e}", { e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e });
+      this.state.configuring = false;
+      this.stateUpdate();
       return;
     }
     try {
@@ -1221,6 +1231,8 @@ class Server {
     } catch (e) {
       this.errorState = "Failed to get global dedicated server configs: " + e != null ? e.code || e.message || e : e;
       this.error("Failed to get global dedicated server configs: {e}", { e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e });
+      this.state.configuring = false;
+      this.stateUpdate();
       return;
     }
     fs.writeFileSync(path.join(this.serverInstallFolder, "hoster_policy.txt"), "gamedir_for_configs: true");
@@ -1231,6 +1243,7 @@ class Server {
   }
 
   steamStateUpdate () {
+    this.log("Steam state update: {state}", {state: this.main.steam.state}, {color: 6});
     this.percent = this.main.steam.percentage;
     this.steamState = this.main.steam.state;
     this.stateUpdate();
@@ -1242,14 +1255,15 @@ class Server {
     this.stateUpdate();
     this.log("Installing server {label}", {label: this.config.label});
     try {
-      this.main.steam.on("state", this.steamStateUpdate.bind(this));
-      this.main.steam.on("percentage", this.steamStateUpdate.bind(this));
-      let result = await this.main.steam.downloadApp("996560", path.normalize(this.serverInstallFolder), this.config.beta,  this.config.betaPassword, this.config.installArguments);
+      let result = await this.main.steam.downloadApp("996560", path.normalize(this.serverInstallFolder), this.config.beta,  this.config.betaPassword, this.config.installArguments, this);
       this.percent = null;
       this.steamState = null;
-      this.main.steam.removeListener("state", this.steamStateUpdate.bind(this));
-      this.main.steam.removeListener("percentage", this.steamStateUpdate.bind(this));
-      if (result != 0) throw "Failed to install server";
+      if (result == -1) {
+        this.state.installing = false;
+        this.stateUpdate();
+        return;
+      }
+      if (result != 0) throw "Steam exit code invalid: " + result;
       this.log("Installed SCPSL", null, {color: 3});
       this.installed = true;
     } catch (e) {
@@ -1288,14 +1302,15 @@ class Server {
     this.stateUpdate();
     this.log("Updating server {label}", {label: this.config.label});
     try {
-      this.main.steam.on("state", this.steamStateUpdate.bind(this));
-      this.main.steam.on("percentage", this.steamStateUpdate.bind(this));
-      let result = await this.main.steam.downloadApp("996560", path.normalize(this.serverInstallFolder), this.config.beta, this.config.betaPassword, this.config.installArguments);
+      let result = await this.main.steam.downloadApp("996560", path.normalize(this.serverInstallFolder), this.config.beta, this.config.betaPassword, this.config.installArguments, this);
       this.percent = null;
       this.steamState = null;
-      this.main.steam.removeListener("state", this.steamStateUpdate.bind(this));
-      this.main.steam.removeListener("percentage", this.steamStateUpdate.bind(this));
-      if (result != 0) throw "Failed to update server";
+      if (result == -1) {
+        this.state.updating = false;
+        this.stateUpdate();
+        return;
+      }
+      if (result != 0) throw "Steam exit code invalid: " + result;
       this.log("Updated SCPSL", null, {color: 3});
       if (this.process != null) this.updatePending = true;
     } catch (e) {
@@ -1437,6 +1452,7 @@ class Server {
     this.nvlaMonitorInstalled = false;
     this.state.running = false;
     this.state.delayedRestart = false;
+    this.updatePending = false;
     this.state.delayedStop = false;
     this.state.idleMode = false;
     this.memory = null;
@@ -1538,13 +1554,19 @@ class Server {
       this.roundStartTime = null;
     } else if (code == 21 || code == 20) {
       if (this.state.delayedRestart) this.state.delayedRestart = false;
-      this.state.stopping = true;
-      this.state.delayedStop = !this.state.delayedStop;
+      if (this.state.stopping) this.state.delayedStop = false;
+      else {
+        this.state.stopping = true;
+        this.state.delayedStop = !this.state.delayedStop;
+      }
       this.stateUpdate();
     } else if (code == 22) {
       if (this.state.delayedStop) this.state.delayedStop = false;
-      this.state.restarting = true;
-      this.state.delayedRestart = !this.state.delayedRestart;
+      if (this.state.restarting) this.state.delayedRestart = false;
+      else {
+        this.state.restarting = true;
+        this.state.delayedRestart = !this.state.delayedRestart;
+      }
       this.stateUpdate();
     } else if (code == 19) {
       if (this.state.delayedRestart) {
@@ -1650,7 +1672,7 @@ class Server {
     if (this.state.updating) return -4; //Server is updating
     if (this.state.configuring) return -5; //Server is configuring
     this.log("Starting server {label}", {label: this.config.label});
-    this.state.starting = true;
+    this.state.starting = false;
     this.uptime = new Date().getTime();
     this.players = null;
     this.tps = null;
@@ -1663,6 +1685,7 @@ class Server {
     this.state.delayedRestart = false;
     this.state.restarting = false;
     this.state.delayedStop = false;
+    this.errorState = null;
     this.stateUpdate();
     this.playerlistTimeoutCount = 0;
     try {
@@ -1672,11 +1695,13 @@ class Server {
       this.socketServer.on("connection", this.handleServerConnection.bind(this));
       this.log("Console socket created on {port}", {port: this.consolePort});
     } catch (e) {
+      this.errorState = "Failed to create console socket: " + e;
       this.error("Failed to create console socket: {e}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
       return -3;
     }
     let executable = fs.existsSync(path.join(this.serverInstallFolder, "SCPSL.exe")) ? path.join(this.serverInstallFolder, "SCPSL.exe") : fs.existsSync(path.join(this.serverInstallFolder, "SCPSL.x86_64")) ? path.join(this.serverInstallFolder, "SCPSL.x86_64") : null;
     if (executable == null) {
+      this.errorState = "Failed to find executable";
       this.error("Failed to find executable");
       return -4;
     }
@@ -1691,8 +1716,10 @@ class Server {
         });
     } catch (e) {
       this.error("Failed to start server: {e}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
+      this.errorState = "Failed to start server: " + e;
       return -5;
     }
+    this.state.starting = true;
     this.process.stdout.on("data", this.handleStdout.bind(this));
     this.process.stderr.on("data", this.handleStderr.bind(this));
     this.process.on("error", this.handleError.bind(this));
@@ -1773,11 +1800,17 @@ class Server {
     this.process.kill();
   }
 
-  cancelDelayedAction () {
+  cancelAction () {
     //requires support for canceling installs and updates
-    if (this.state.delayedRestart == false && this.state.delayedStop == false) return;
+    if (this.state.updating && this.main.steam.activeProcess != null) {
+      this.main.steam.cancel = true;
+      this.main.steam.activeProcess.kill();
+    } else if (this.state.installing && this.main.steam.activeProcess != null) {
+      this.main.steam.cancel = true;
+      this.main.steam.activeProcess.kill();
+    }
     if (this.state.delayedRestart) this.command("rnr");
-    if (this.state.delayedStop) this.command("snr");
+    else if (this.state.delayedStop) this.command("snr");
   }
 }
 
@@ -1839,6 +1872,8 @@ class steam extends EventEmitter {
 
   /** @type NVLA["logger"] */
   logger;
+
+  cancel = false;
 
   /** @type {pty.IPty} */
   activeProcess;
@@ -1929,6 +1964,7 @@ class steam extends EventEmitter {
   }
 
   async run(params) {
+    this.cancel = false;
     this.verbose("Steam binary path: {path}", { path: this.binaryPath }, { color: 6 });
     this.activeProcess = pty.spawn(process.platform === "win32" ? "powershell.exe" : "bash", [], {cwd: path.parse(this.binaryPath).dir, env: process.platform == "linux" ? Object.assign({LD_LIBRARY_PATH: path.parse(this.binaryPath).dir}, process.env) : process.env});
     
@@ -1954,6 +1990,11 @@ class steam extends EventEmitter {
     }.bind(proc));
     this.activeProcess = null;
     this.log("Steam binary finished with code: {code}", { code: code }, { color: 3 });
+    if (this.cancel) {
+      this.error("Steam execution cancelled", null, { color: 3 });
+      this.cancel = false;
+      return -1;
+    }
     if (code == 42 || code == 7) {
       this.log("Steam binary updated, restarting", null, { color: 3 });
       return this.run(params); //If exit code is 42, steamcmd updated and triggered magic restart
@@ -1971,8 +2012,10 @@ class steam extends EventEmitter {
   /**
    * Runs a steamcmd command immedately or puts it in the queue
    * @param {Array<String>} params
+   * @param {String} runId
+   * @param {Server} server
    */
-  async runWrapper(params, runId) {
+  async runWrapper(params, runId, server) {
     while (this.inUse)
       await new Promise(
         function (resolve, reject) {
@@ -1984,10 +2027,20 @@ class steam extends EventEmitter {
     let result = null;
     this.emit("starting", runId);
     this.verbose("Running: {runId}", { runId: runId }, { color: 6 });
+    let binding;
+    if (server != null) {
+      binding = server.steamStateUpdate.bind(server);
+      this.on("state", binding);
+      this.on("percentage", binding);
+    }
     try {
       result = await this.run(params);
     } catch (e) {
       this.log("Steam execution caused exception: {e}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
+    }
+    if (server != null) {
+      this.removeListener("state", binding);
+      this.removeListener("percentage", binding);
     }
     this.inUse = false;
     this.runId = null;
@@ -2016,7 +2069,17 @@ class steam extends EventEmitter {
     return result;
   }
 
-  async downloadApp(appId, path, beta, betaPassword, customArgs) {
+  /**
+   * 
+   * @param {string} appId 
+   * @param {string} path 
+   * @param {string} beta 
+   * @param {string} betaPassword 
+   * @param {Array<String>} customArgs 
+   * @param {Server} server 
+   * @returns 
+   */
+  async downloadApp(appId, path, beta, betaPassword, customArgs, server) {
     let result = await this.runWrapper(
       [
         customArgs != null ? customArgs.join(" ") : "",
@@ -2033,7 +2096,7 @@ class steam extends EventEmitter {
         "validate",
         "+quit",
       ],
-      Math.floor(Math.random() * 10000000000)
+      Math.floor(Math.random() * 10000000000), server
     );
     return result;
   }
@@ -2927,3 +2990,4 @@ module.exports = {
   addresses: addresses,
   FileInfo: FileInfo,
 };
+

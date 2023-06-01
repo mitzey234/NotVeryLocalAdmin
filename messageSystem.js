@@ -806,7 +806,7 @@ class cancelServerOperation extends messageType {
             let server = this.main.ServerManager.servers.get(this.serverid);
             server.log("Web canceling server operation");
             try {
-                server.cancelDelayedAction();
+                server.cancelAction();
             } catch (e) {
                 server.error("Failed to cancel server operation: {e}", {e: e != null ? e.code || e.message : e, stack: e != null ? e.stack : e});
                 return;

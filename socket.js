@@ -20,14 +20,22 @@ exports.Client = class Client extends Net.Socket {
     this.buffer = [];
     this.buffered = 0;
     this.messageLength = null;
+    this.preBuffer = null;
     this.sendMessage = sendMessage.bind(this);
     this.on('data', onData.bind(this));
   }
 }
 
 function onData (chunk) {
+  if (this.preBuffer != null) {
+    chunk = Buffer.concat([this.preBuffer, chunk]);
+    this.preBuffer = null;
+  }
   if (this.messageLength == null) {
-    if (chunk.length < 8) return;
+    if (chunk.length < 8) {
+      this.preBuffer = chunk;
+      return;
+    }
     this.messageLength = parseInt(chunk.readBigUInt64BE(0));
     chunk = chunk.slice(8,chunk.length);
   }
@@ -47,7 +55,7 @@ function onData (chunk) {
     this.buffered += slice.length;
     chunk = chunk.slice(remaining);
   }
-  if (this.buffered == this.messageLength) onMessageComplete.bind(this)();
+  if (this.buffered >= this.messageLength) onMessageComplete.bind(this)();
   if (chunk.length == 0) return;
   else onData.bind(this)(chunk);
 }
