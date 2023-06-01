@@ -1503,11 +1503,11 @@ class Server {
       if (d[i].trim() != "") {
         var cleanup = false;
         if (d[i].indexOf("The referenced script") > -1 && d[i].indexOf("on this Behaviour") > -1 && d[i].indexOf("is missing!") > -1) cleanup = true;
-        if (d[i].indexOf("Filename:  Line: ") > -1) cleanup = true;
-        if (d[i].indexOf("A scripted object") > -1 && d[i].indexOf("has a different serialization layout when loading.") > -1) cleanup = true;
-        if (d[i].indexOf("Did you #ifdef UNITY_EDITOR a section of your serialized properties in any of your scripts?") > -1) cleanup = true;
-        if (d[i].indexOf("Action name") > -1 && d[i].indexOf("is not defined") > -1) cleanup = true;
-        if (cleanup == true && this.config.cleanLogs);
+        else if (d[i].indexOf("Filename:  Line: ") > -1) cleanup = true;
+        else if (d[i].indexOf("A scripted object") > -1 && d[i].indexOf("has a different serialization layout when loading.") > -1) cleanup = true;
+        else if (d[i].indexOf("Did you #ifdef UNITY_EDITOR a section of your serialized properties in any of your scripts?") > -1) cleanup = true;
+        else if (d[i].indexOf("Action name") > -1 && d[i].indexOf("is not defined") > -1) cleanup = true;
+        if (cleanup == true && this.config.cleanLogs) continue;
         this.verbose(d[i], { logType: "sdtout", cleanup: cleanup }, { color: 8 });
       }
   }
@@ -1527,13 +1527,6 @@ class Server {
         this.onMonitorUpdate(data);
         return;
       }
-      var cleanup = false;
-      if (d[i].indexOf("The referenced script") > -1 && d[i].indexOf("on this Behaviour") > -1 && d[i].indexOf("is missing!") > -1) cleanup = true;
-      if (d[i].indexOf("Filename:  Line: ") > -1) cleanup = true;
-      if (d[i].indexOf("A scripted object") > -1 && d[i].indexOf("has a different serialization layout when loading.") > -1) cleanup = true;
-      if (d[i].indexOf("Did you #ifdef UNITY_EDITOR a section of your serialized properties in any of your scripts?") > -1) cleanup = true;
-      if (d[i].indexOf("Action name") > -1 && d[i].indexOf("is not defined") > -1) cleanup = true;
-      if (cleanup == true && this.config.cleanLogs);
       this.error(d[i], { logType: "sdtout", cleanup: cleanup }, { color: 8 });
     }
   }
