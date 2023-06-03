@@ -448,7 +448,12 @@ class settings {
       if (fs.existsSync(verkeyPath)) this.verkey = fs.readFileSync(verkeyPath).toString();
       if (this.verkey != null && this.verkey.trim() == "") this.verkey = null;
     } else if (this.verkey.trim() != "") {
-      fs.writeFileSync(verkeyPath, this.verkey);
+      try {
+        if (!fs.existsSync(path.parse(verkeyPath).dir)) fs.mkdirSync(path.parse(verkeyPath).dir, { recursive: true });
+        fs.writeFileSync(verkeyPath, this.verkey);
+      } catch (e) {
+        console.error("Failed to write verkey to file");
+      }
     } else {
       this.verkey = null;
     }
@@ -738,6 +743,7 @@ class Server {
     this.serverConfigsFolder = path.join(this.serverInstallFolder, "AppData", "config", config.port.toString());
     this.globalDedicatedServerConfigFiles = path.join(this.serverInstallFolder, "AppData", "config", "global");
     this.serverCustomAssembliesFolder = path.join(this.serverInstallFolder, "SCPSL_Data", "Managed");
+    this.log("Server local config folder: " + this.serverContainer);
     try {
       if (!fs.existsSync(this.pluginsFolderPath)) fs.mkdirSync(this.pluginsFolderPath, { recursive: true });
       if (!fs.existsSync(this.serverConfigsFolder)) fs.mkdirSync(this.serverConfigsFolder, { recursive: true });
@@ -1717,6 +1723,10 @@ class Server {
     this.process.stderr.on("data", this.handleStderr.bind(this));
     this.process.on("error", this.handleError.bind(this));
     this.process.on("exit", this.handleExit.bind(this));
+    if (this.timeout != null) {
+      clearTimeout(this.timeout);
+      this.timeout = null;
+    }
     this.timeout = setTimeout(this.startTimeout.bind(this), 1000*this.config.maximumStartupTime);
   }
 
@@ -1740,6 +1750,10 @@ class Server {
       this.command("stop");
       this.state.delayedStop = false;
       this.stateUpdate();
+      if (this.timeout != null) {
+        clearTimeout(this.timeout);
+        this.timeout = null;
+      }
       this.timeout = setTimeout(this.stopTimeout.bind(this), 1000*this.config.maximumShutdownTime);
       return;
     }
@@ -1747,6 +1761,10 @@ class Server {
       this.command("stop");
       this.state.delayedStop = false;
       this.stateUpdate();
+      if (this.timeout != null) {
+        clearTimeout(this.timeout);
+        this.timeout = null;
+      }
       this.timeout = setTimeout(this.stopTimeout.bind(this), 1000*this.config.maximumShutdownTime);
       return;
     } else {
@@ -1777,6 +1795,10 @@ class Server {
       this.command("softrestart");
       this.state.delayedRestart = false;
       this.stateUpdate();
+      if (this.timeout != null) {
+        clearTimeout(this.timeout);
+        this.timeout = null;
+      }
       this.timeout = setTimeout(this.restartTimeout.bind(this), 1000*this.config.maximumRestartTime);
       return;
     } else {
