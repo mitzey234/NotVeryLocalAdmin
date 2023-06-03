@@ -942,6 +942,7 @@ class Server {
           this.log("Up to date: {path}", { path: joinPaths(file.path) + path.sep + file.name });
           continue;
         }
+        if (this.state.running) this.updatePending = true;
         this.log("Writing ("+file.md5+"): {path}", { path: joinPaths(file.path) + path.sep + file.name });
         if (!lockFiles.has(path.join(joinPaths(file.path), file.name))) lockFiles.set(path.join(joinPaths(file.path), file.name), 0);
         let lockfile = lockFiles.get(path.join(joinPaths(file.path), file.name))+1;
@@ -976,6 +977,7 @@ class Server {
             let lockfile = lockFiles.get(path.join(joinPaths(file.p) || "", file.filename))+1;
             lockFiles.set(path.join(joinPaths(file.p) || "", file.filename), lockfile);
             fs.rmSync(path.join(targetFolder, joinPaths(file.p) || "", file.filename), { recursive: true });
+            if (this.state.running) this.updatePending = true;
           }
         } catch (e) {
           this.error("Failed to check if file is ignored: {e}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
@@ -995,6 +997,7 @@ class Server {
       this.log("Deleting: {path}", {path: path.join(joinPaths(folders[i].p) || "", folders[i].filename)});
       try {
         fs.rmSync(path.join(targetFolder, joinPaths(folders[i].p) || "", folders[i].filename), { recursive: true });
+        if (this.state.running) this.updatePending = true;
       } catch (e) {
         this.errorState = "Failed to delete unneeded "+shortName+" folder: " + e != null ? e.code || e.message || e : e;
         this.error("Failed to delete unneeded "+shortName+" folder: {e}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
@@ -1048,6 +1051,7 @@ class Server {
         this.log("Up to date: {path}", { path: joinPaths(file.path) + path.sep + file.name });
         return;
       }
+      if (this.state.running) this.updatePending = true;
       this.log("Writing ("+file.md5+"): {path}", { path: joinPaths(file.path) + path.sep + file.name });
       if (!lockFiles.has(path.join(joinPaths(file.path), file.name))) lockFiles.set(path.join(joinPaths(file.path), file.name), 0);
       let lockfile = lockFiles.get(path.join(joinPaths(file.path), file.name))+1;
@@ -1136,6 +1140,7 @@ class Server {
         this.log("Deleting: {file}", {file: file});
         try {
           fs.rmSync(path.join(targetFolder, file), {recursive: true});
+          if (this.state.running) this.updatePending = true;
         } catch (e) {
           this.errorState = "Failed to delete unneeded "+shortName+": " + e != null ? e.code || e.message || e : e;
           this.error("Failed to delete unneeded "+shortName+": {e}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
@@ -1159,6 +1164,7 @@ class Server {
         this.log("Updating: {name}", {name: assembly.name, subtype: type});
         try {
           await this.main.vega.downloadFile("assemblies", type, assembly.name, this, null);
+          if (this.state.running) this.updatePending = true;
         } catch (e) {
           this.errorState = "Failed to download "+shortName+" '"+assembly.name+"': " + e != null ? e.code || e.message || e : e;
           this.error("Failed to download "+shortName+" '{name}': {e}", {name: assembly.name, e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
@@ -1242,14 +1248,12 @@ class Server {
       return;
     }
     fs.writeFileSync(path.join(this.serverInstallFolder, "hoster_policy.txt"), "gamedir_for_configs: true");
-    if (this.process != null) this.updatePending = true;
     this.state.configuring = false;
     this.stateUpdate();
     if (this.config.autoStart && this.process == null) this.start();
   }
 
   steamStateUpdate () {
-    this.log("Steam state update: {state}", {state: this.main.steam.state}, {color: 6});
     this.percent = this.main.steam.percentage;
     this.steamState = this.main.steam.state;
     this.stateUpdate();
@@ -1347,7 +1351,6 @@ class Server {
         } else {
           this.log("Scheduled Restart in progress", null, {color: 6});
           this.lastRestart = date;
-          this.restart();
         }
       }
     }
@@ -1359,9 +1362,10 @@ class Server {
         if (e == "Timeout") {
           this.error("Failed to check server, server timed out " + this.playerlistTimeoutCount, null, {color: 4});
           this.playerlistTimeoutCount++;
-          if (this.playerlistTimeoutCount >= this.config.maximumServerUnresponsiveTime/8 && !this.state.restarting) {
+          if (this.playerlistTimeoutCount >= this.config.maximumServerUnresponsiveTime/8) {
             this.error("Server is unresponsive, restarting", null, {color: 4});
-            this.restart(true, true);
+            this.state.restarting = true;
+            this.process.kill(9);
           }
         } else {
           this.error("Failed to check server, code: {e}", {e: e});
@@ -1406,9 +1410,10 @@ class Server {
     if (!this.state.running) return;
     this.error("Failed to check server, NVLA Monitor timed out " + this.playerlistTimeoutCount, null, {color: 4});
     this.playerlistTimeoutCount++;
-    if (this.playerlistTimeoutCount >= this.config.maximumServerUnresponsiveTime/8 && !this.state.restarting) {
+    if (this.playerlistTimeoutCount >= this.config.maximumServerUnresponsiveTime/8) {
       this.error("Server is unresponsive, restarting", null, {color: 4});
-      this.restart(true, true);
+      this.state.restarting = true;
+      this.process.kill(9);
     } else {
       clearTimeout(this.monitorTimeout);
       this.monitorTimeout = setTimeout(this.monitorUpdateTimeout.bind(this), this.state.idleMode ? 60000*5 : 8000);
@@ -1553,18 +1558,34 @@ class Server {
       this.roundStartTime = null;
     } else if (code == 21 || code == 20) {
       if (this.state.delayedRestart) this.state.delayedRestart = false;
-      if (this.state.stopping) this.state.delayedStop = false;
+      if (this.state.stopping && this.state.delayedStop) {
+        console.log(1);
+        this.state.delayedStop = false;
+      }
+      else if (this.state.stopping && !this.state.delayedStop) {
+        console.log(2);
+        this.state.delayedStop = false;
+      }
       else {
+        console.log(3);
         this.state.stopping = true;
-        this.state.delayedStop = !this.state.delayedStop;
+        this.state.delayedStop = true;
       }
       this.stateUpdate();
     } else if (code == 22) {
       if (this.state.delayedStop) this.state.delayedStop = false;
-      if (this.state.restarting) this.state.delayedRestart = false;
+      if (this.state.restarting && this.state.delayedRestart) {
+        console.log(1);
+        this.state.delayedRestart = false;
+      }
+      else if (this.state.restarting && !this.state.delayedRestart) {
+        console.log(2);
+        this.state.delayedRestart = false;
+      }
       else {
+        console.log(3);
         this.state.restarting = true;
-        this.state.delayedRestart = !this.state.delayedRestart;
+        this.state.delayedRestart = true;
       }
       this.stateUpdate();
     } else if (code == 19) {
@@ -1739,16 +1760,17 @@ class Server {
     this.stop(true, true);
   }
 
-  stop(forced, kill = false) {
+  stop(forced) {
     if (this.process == null) return -1; //Server process not active
-    if (this.state.stopping && !forced) return -2; //Server already stopping
-    this.state.stopping = true;
-    this.stateUpdate();
-    this.log((forced ? "Force " : "") + "Stopping server {label}", {label: this.config.label}, {color: 6});
-    if (forced && kill) return this.process.kill();
-    if (this.state.starting) {
-      this.command("stop");
+    if (this.state.uninstalling) return -5; //Server uninstalling
+    if ((this.state.stopping && !this.state.delayedStop) || (this.state.starting)) {
+      this.log("Killing server {label}", {label: this.config.label}, {color: 6});
+      this.process.kill(9);
+    } else if (this.state.delayedStop || (!this.state.stopping && this.players != null && this.players.length <= 0) || forced) {
+      this.log("Force Stopping server {label}", {label: this.config.label}, {color: 6});
       this.state.delayedStop = false;
+      this.state.stopping = true;
+      this.command("stop");
       this.stateUpdate();
       if (this.timeout != null) {
         clearTimeout(this.timeout);
@@ -1756,19 +1778,9 @@ class Server {
       }
       this.timeout = setTimeout(this.stopTimeout.bind(this), 1000*this.config.maximumShutdownTime);
       return;
-    }
-    if (forced || (this.players != null && this.players.length == 0)) {
-      this.command("stop");
-      this.state.delayedStop = false;
+    } else if (!this.state.stopping && this.players != null && this.players.length > 0) {
+      this.log("Stopping server {label} Delayed", {label: this.config.label}, {color: 6});
       this.stateUpdate();
-      if (this.timeout != null) {
-        clearTimeout(this.timeout);
-        this.timeout = null;
-      }
-      this.timeout = setTimeout(this.stopTimeout.bind(this), 1000*this.config.maximumShutdownTime);
-      return;
-    } else {
-      if (this.state.delayedRestart) this.command("rnr");
       this.command("snr");
     }
   }
@@ -1781,19 +1793,17 @@ class Server {
     this.process.kill();
   }
 
-  restart(forced, kill = false) {
-    if (this.state.stopping) return -2; //Server stopping
-    if (this.state.starting && !forced) return -3; //Server restarting
-    if (this.state.restarting && !forced) return -4; //Server restarting
-    if (this.state.uninstalling) return -5; //Server uninstalling
+  restart(forced) {
     if (this.process == null) return this.start();
-    this.state.restarting = true;
-    this.stateUpdate();
-    this.log((forced ? "Force " : "") + "Restarting server {label}", {label: this.config.label}, {color: 6});
-    if (forced && kill) return this.process.kill();
-    if (forced || this.players.length == 0) {
-      this.command("softrestart");
+    if (this.state.stopping) return -2; //Server stopping
+    if (this.state.starting) return -3; //Server restarting
+    if (this.state.uninstalling) return -5; //Server uninstalling
+    if (this.state.delayedStop) this.command("snr");
+    if (this.state.delayedRestart || (!this.state.restarting && this.players != null && this.players.length <= 0) || forced) {
+      this.log("Force Restarting server {label}", {label: this.config.label}, {color: 6});
       this.state.delayedRestart = false;
+      this.state.restarting = true;
+      this.command("softrestart");
       this.stateUpdate();
       if (this.timeout != null) {
         clearTimeout(this.timeout);
@@ -1801,8 +1811,9 @@ class Server {
       }
       this.timeout = setTimeout(this.restartTimeout.bind(this), 1000*this.config.maximumRestartTime);
       return;
-    } else {
-      if (this.state.delayedStop) this.command("snr");
+    } else if (!this.state.restarting && this.players != null && this.players.length > 0) {
+      this.log("Restarting server {label} delayed", {label: this.config.label}, {color: 6});
+      this.stateUpdate();
       this.command("rnr");
     }
   }

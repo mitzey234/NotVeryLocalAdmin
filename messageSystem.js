@@ -69,7 +69,6 @@ class auth extends messageType {
         if (obj.data == null || obj.data == undefined) throw "type 'auth' requires 'data'";
         this.data = obj.data;
         if (obj.data != null && obj.data == true && (obj.id == null || obj.id == undefined)) throw "type 'auth' requires 'id'";
-        if (obj.httpPort == null || obj.httpPort == undefined) throw "type 'auth' requires 'httpPort'";
         this.httpPort = obj.httpPort;
         this.id = obj.id;
         this.e = obj.e;
@@ -78,7 +77,7 @@ class auth extends messageType {
     /** 
      * @param {import("./socket")["Client"]["prototype"]} s */
      async execute(s) {
-        if (this.data == true) {
+        if (this.data == true && this.httpPort != null) {
             this.vega.httpPort = this.httpPort;
             this.vega.log("Vega download server at: {host}:{port}", {host:this.main.config.vega.host, port:this.httpPort}, {color: 6});
             s.pingSystem = new pingSystem(s.sendMessage, this.vega.serverTimeout.bind(this.vega));
@@ -89,7 +88,7 @@ class auth extends messageType {
             }
             this.vega.onAuthenticated();
         } else {
-            this.vega.log.bind(this)("Vega Connection rejected: " + this.e);
+            this.vega.error("Vega Connection rejected: {e}", {e: this.e});
         }
     }
 }
