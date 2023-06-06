@@ -870,6 +870,125 @@ class updateServer extends messageType {
 }
 classes.set(updateServer.name, updateServer);
 
+
+class uninstallServer extends messageType {
+    /** @type {string} Server id*/
+    serverid;
+
+    /**
+     * @param main {messageHandler}
+     * @param obj {object} */
+    constructor(main, obj) {
+        super(main, obj);
+        if (obj.serverid == null || obj.serverid == undefined) throw "type 'uninstallServer' requires 'serverid'";
+        this.serverid = obj.serverid;
+    }
+
+    /** 
+     * @param {import("./socket")["Client"]["prototype"]} s */
+    async execute(s) {
+        if (this.main.ServerManager.servers.has(this.serverid)) {
+            let server = this.main.ServerManager.servers.get(this.serverid);
+            server.log("Web uninstalling server");
+            let result
+            try {
+                result = await server.uninstall();
+            } catch (e) {
+                server.error("Failed to uninstall server: {e}", {e: e != null ? e.code || e.message : e, stack: e != null ? e.stack : e});
+                return;
+            }
+            if (result != null) {
+                server.error("Failed to uninstall server: {e}", {e: result});
+                return;
+            }
+            this.main.ServerManager.servers.delete(server.config.id);
+        }
+    }
+}
+classes.set(uninstallServer.name, uninstallServer);
+
+class installServer extends messageType {
+    /** @type {Classes["ServerConfig"]["prototype"]} Server id*/
+    server;
+
+    /**
+     * @param main {messageHandler}
+     * @param obj {object} */
+    constructor(main, obj) {
+        super(main, obj);
+        if (obj.server == null || obj.server == undefined) throw "type 'installServer' requires 'server'";
+        this.server = obj.server;
+    }
+
+    /** 
+     * @param {import("./socket")["Client"]["prototype"]} s */
+    async execute(s) {
+        let server;
+        if (this.main.ServerManager.servers.has(this.server.id)) server = this.main.ServerManager.servers.get(this.server.id);
+        else server = new this.exports.Server(this.main, this.server);
+        server.log("Web installing server");
+        server.config = this.server;
+        this.main.ServerManager.servers.set(this.server.id, server);
+        try {
+            if (!server.installed) await server.install();
+            else await server.configure();
+            if (!fs.existsSync(server.serverContainer)) fs.mkdirSync(server.serverContainer, {recursive: true});
+            fs.writeFileSync(path.join(server.serverContainer, "config.json"), JSON.stringify(this.server, null, 4));
+            fs.writeFileSync(path.join(server.serverContainer, server.config.label + ".txt"), "This file is only here to help identify the server's label in the file system for a user. It is not used by the server or NVLA in any way.");
+        } catch (e) {
+            this.error("Failed to install server: {e} ", {e: e != null ? e.code || e.message : e, stack: e.stack});
+            server.error = e;
+        }
+    }
+}
+classes.set(installServer.name, installServer);
+
+class updateServerConfig extends messageType {
+    /** @type {Classes["ServerConfig"]["prototype"]} Server config*/
+    data;
+
+    /** @type string id */
+    serverid;
+
+    /**
+     * @param main {messageHandler}
+     * @param obj {object} */
+    constructor(main, obj) {
+        super(main, obj);
+        if (obj.data == null || obj.data == undefined) throw "type 'updateServerConfig' requires 'data'";
+        if (obj.serverid == null || obj.serverid == undefined) throw "type 'updateServerConfig' requires 'serverid'";
+        this.data = obj.data;
+        this.serverid = obj.serverid;
+    }
+
+    /** 
+     * @param {import("./socket")["Client"]["prototype"]} s */
+    async execute(s) {
+        let server;
+        if (!this.main.ServerManager.servers.has(this.serverid)) return;
+        server = this.main.ServerManager.servers.get(this.serverid);
+        server.log("Web editing server");
+        let oldLabel = server.config.label;
+        server.config = this.data;
+        this.main.ServerManager.servers.set(this.serverid, server);
+        try {
+            if (!server.installed) await server.install();
+            else await server.configure();
+            if (!fs.existsSync(server.serverContainer)) fs.mkdirSync(server.serverContainer, {recursive: true});
+            fs.writeFileSync(path.join(server.serverContainer, "config.json"), JSON.stringify(this.data, null, 4));
+            if (fs.existsSync(path.join(server.serverContainer, oldLabel + ".txt"))) fs.unlinkSync(path.join(server.serverContainer, oldLabel + ".txt"));
+            fs.writeFileSync(path.join(server.serverContainer, server.config.label + ".txt"), "This file is only here to help identify the server's label in the file system for a user. It is not used by the server or NVLA in any way.");
+        } catch (e) {
+            this.error("Failed to install server: {e} ", {e: e != null ? e.code || e.message : e, stack: e.stack});
+            server.error = e;
+        }
+    }    
+}
+classes.set(updateServerConfig.name, updateServerConfig);
+
+
+
+
 class messageHandler {
     /** @type {import("./classes")["NVLA"]["prototype"]} */
     main;

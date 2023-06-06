@@ -1326,6 +1326,8 @@ class Server {
     } catch (e) {
       this.errorState = "Failed to update server: " + e != null ? e.code || e.message || e : e;
       this.error("Failed to update server: ", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
+      this.state.updating = false;
+      this.stateUpdate();
       return;
     }
     try {
@@ -1333,6 +1335,8 @@ class Server {
     } catch (e) {
       this.errorState = "Failed to update server: " + e != null ? e.code || e.message || e : e;
       this.error("Failed to get custom assemblies: {e}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
+      this.state.updating = false;
+      this.stateUpdate();
       return;
     }
     this.state.updating = false;
