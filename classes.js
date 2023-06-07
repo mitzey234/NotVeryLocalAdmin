@@ -853,7 +853,29 @@ class Server {
     this.configFileEvent("pluginConfig", event, filePath);
   }
 
+  /** @type Map<string,{type: string, event: string, filePath: string}> */
+  fileEventQueue = new Map();
+
+  async processFileEventQueue () {
+    if (this.state.starting) return;
+    if (this.fileEventQueue.size == 0) return;
+    for (let i of this.fileEventQueue.entries()) {
+      let key = i[0];
+      let data = i[1];
+      await this.configFileEvent(data.type, data.event, data.filePath);
+      this.fileEventQueue.delete(key);
+    }
+    if (this.fileEventQueue.size > 0) setTimeout(this.processFileEventQueue.bind(this), 1000);
+  }
+
   async configFileEvent (type, event, filePath) {
+    if (this.state.starting) {
+      let id = crypto.createHash('sha256').update(type+filePath).digest('hex');
+      if (this.fileEventQueue.has(id)) return;
+      this.fileEventQueue.set(id, {type: type, event: event, filePath: filePath});
+      setTimeout(this.processFileEventQueue.bind(this), 1000);
+      return;
+    }
     if (this.disableWatching) return;
     let targetFolder;
     let lockfiles;
@@ -887,9 +909,6 @@ class Server {
     }
     this.log(type+" file event: {event} {filePath}", { event: event, filePath: filePath }, { color: 6 });
   }
-
-
-
 
   async getConfigs (type) {
     let targetFolder;
@@ -1446,6 +1465,7 @@ class Server {
 
   async stateUpdate() {
     this.main.emit("serverStateChange", this);
+    this.processFileEventQueue();
   }
 
   async handleExit(code, signal) {
@@ -1563,15 +1583,12 @@ class Server {
     } else if (code == 21 || code == 20) {
       if (this.state.delayedRestart) this.state.delayedRestart = false;
       if (this.state.stopping && this.state.delayedStop) {
-        console.log(1);
         this.state.delayedStop = false;
       }
       else if (this.state.stopping && !this.state.delayedStop) {
-        console.log(2);
         this.state.delayedStop = false;
       }
       else {
-        console.log(3);
         this.state.stopping = true;
         this.state.delayedStop = true;
       }
@@ -1579,15 +1596,12 @@ class Server {
     } else if (code == 22) {
       if (this.state.delayedStop) this.state.delayedStop = false;
       if (this.state.restarting && this.state.delayedRestart) {
-        console.log(1);
         this.state.delayedRestart = false;
       }
       else if (this.state.restarting && !this.state.delayedRestart) {
-        console.log(2);
         this.state.delayedRestart = false;
       }
       else {
-        console.log(3);
         this.state.restarting = true;
         this.state.delayedRestart = true;
       }
