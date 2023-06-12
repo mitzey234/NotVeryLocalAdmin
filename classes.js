@@ -1562,7 +1562,7 @@ class Server {
         this.onMonitorUpdate(data);
         return;
       }
-      this.error(d[i], { logType: "sdtout", cleanup: cleanup }, { color: 8 });
+      this.error(d[i], { logType: "sdtout", cleanup: false }, { color: 8 });
     }
   }
   
