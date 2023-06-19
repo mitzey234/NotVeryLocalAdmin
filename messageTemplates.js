@@ -138,6 +138,24 @@ class auth {
     /* @type {string} */
     version;
 
+    /** @type number */
+    cpu;
+
+    /** @type number */
+    memory;
+
+    /** @type boolean */
+    lowMemory;
+
+    /** @type number */
+    uptime;
+
+    /** @type number */
+    totalMemory;
+
+    /** @type Classes.addresses */
+    network;
+
     /**
      * @param {import("./classes")["NVLA"]["prototype"]} main 
      * @param {*} obj 
@@ -148,6 +166,12 @@ class auth {
         this.id = main.config.vega.id;
         this.label = main.config.vega.label;
         this.version = pack.version;
+        this.cpu = main.cpu;
+        this.memory = main.memory;
+        this.totalMemory = main.totalMemory;
+        this.lowMemory = main.lowMemory;
+        this.uptime = Date.now() - main.uptime;
+        if (main.network != null) this.network = main.network.trim();
     }
 }
 
@@ -268,7 +292,7 @@ class machineStatus {
         this.totalMemory = vega.main.totalMemory;
         this.lowMemory = vega.main.lowMemory;
         this.uptime = Date.now() - vega.main.uptime;
-        this.network = vega.main.network.trim();
+        if (vega.main.network != null) this.network = vega.main.network.trim();
     }
 }
 

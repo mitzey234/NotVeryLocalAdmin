@@ -987,6 +987,42 @@ class updateServerConfig extends messageType {
 classes.set(updateServerConfig.name, updateServerConfig);
 
 
+class queryRequest extends messageType {
+    /** @type {object}*/
+    data;
+
+    /** @type string */
+    requestType;
+
+    /** @type string */
+    id;
+
+    /**
+     * @param main {messageHandler}
+     * @param obj {object} */
+    constructor(main, obj) {
+        super(main, obj);
+        console.log(obj);
+        if (obj.id == null || obj.id == undefined) throw "type 'queryRequest' requires 'id'";
+        if (obj.requestType == null || obj.requestType == undefined) throw "type 'queryRequest' requires 'requestType'";
+        this.data = obj.data;
+        this.requestType = obj.requestType;
+        this.id = obj.id;
+    }
+
+    /** 
+     * @param {import("./socket")["Client"]["prototype"]} s */
+    async execute(s) {
+        console.log(this);
+        if (this.requestType == "machineConfig") {
+            let data = JSON.parse(JSON.stringify(this.main.config, null));
+            s.sendMessage({type: "queryResponse", id: this.id, data: data});
+        }
+    }    
+}
+classes.set(queryRequest.name, queryRequest);
+
+
 
 
 class messageHandler {
