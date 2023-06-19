@@ -1026,35 +1026,44 @@ class Server {
     this.log("Wrote "+names+"", null, {color: 6});
   }
 
+  getConfigInProgress = false;
+
   /**
    * @param {string} type 
    * @param {FileInfo} file 
    * @returns 
    */
   async getConfig (type, file) {
+    while (this.getConfigInProgress) await new Promise((resolve) => setTimeout(resolve, 200));
+    this.getConfigInProgress = true;
     let targetFolder;
     let names;
     let shortName;
     let usedFolders = [];
     let lockFiles;
-    if (type == "pluginConfig") {
-      targetFolder = this.pluginsFolderPath;
-      names = "Plugin Configs";
-      shortName = "Plugin Config";
-      usedFolders.push("dependencies");
-      lockFiles = this.pluginLockfiles;
-    } else if (type == "serverConfig") {
-      targetFolder = this.serverConfigsFolder;
-      names = "Server Configs";
-      shortName = "Server Config";
-      lockFiles = this.configLockfiles;
-    } else if (type == "globalServerConfig") {
-      targetFolder = this.globalDedicatedServerConfigFiles;
-      names = "Global Server Configs";
-      shortName = "Global Server Config";
-      lockFiles = this.globalConfigLockfiles;
-    } else {
-      throw "Invalid type";
+    try {
+      if (type == "pluginConfig") {
+        targetFolder = this.pluginsFolderPath;
+        names = "Plugin Configs";
+        shortName = "Plugin Config";
+        usedFolders.push("dependencies");
+        lockFiles = this.pluginLockfiles;
+      } else if (type == "serverConfig") {
+        targetFolder = this.serverConfigsFolder;
+        names = "Server Configs";
+        shortName = "Server Config";
+        lockFiles = this.configLockfiles;
+      } else if (type == "globalServerConfig") {
+        targetFolder = this.globalDedicatedServerConfigFiles;
+        names = "Global Server Configs";
+        shortName = "Global Server Config";
+        lockFiles = this.globalConfigLockfiles;
+      } else {
+        throw "Invalid type";
+      }
+    } catch (e) {
+      this.getConfigInProgress = false;
+      return;
     }
     let filePath = path.join(targetFolder, joinPaths(file.path), file.name);
     if (!usedFolders.includes(joinPaths(file.path))) usedFolders.push(joinPaths(file.path));
@@ -1063,11 +1072,13 @@ class Server {
     } catch (e) {
       this.errorState = "Failed to create "+shortName+" directory: " + e != null ? e.code || e.message || e : e;
       this.error("Failed to create "+shortName+" directory: {e}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
+      this.getConfigInProgress = false;
       return;
     }
     try {
       if (fs.existsSync(filePath) && await loadMD5(filePath) == file.md5) {
         this.log("Up to date: {path}", { path: joinPaths(file.path) + path.sep + file.name });
+        this.getConfigInProgress = false;
         return;
       }
       if (this.state.running) this.updatePending = true;
@@ -1076,7 +1087,10 @@ class Server {
       let lockfile = lockFiles.get(path.join(joinPaths(file.path), file.name))+1;
       lockFiles.set(path.join(joinPaths(file.path), file.name), lockfile);
       await this.main.vega.downloadFile("configFile", type, file.name, this, file.path);
-      if (await loadMD5(filePath) != file.md5) throw "MD5 mismatch";
+      if (await loadMD5(filePath) != file.md5) {
+        await this.getConfig(type, file);
+        throw "MD5 mismatch";
+      }
       lockfile = lockFiles.get(path.join(joinPaths(file.path), file.name))-1;
       if (lockfile <= 0) lockFiles.delete(path.join(joinPaths(file.path), file.name));
       else lockFiles.set(path.join(joinPaths(file.path), file.name), lockfile);
@@ -1084,6 +1098,7 @@ class Server {
       this.errorState = "Failed to write "+shortName+" file ("+file.name+"): " + e != null ? e.code || e.message || e : e;
       this.error("Failed to write "+shortName+" file ({name}): {e}\n{stack}", {name: file.name, e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
     }
+    this.getConfigInProgress = false;
   }
 
 
@@ -1180,7 +1195,7 @@ class Server {
     for (let i in data) {
       let assembly = data[i];
       if (!found.includes(assembly.name)) {
-        this.log("Updating: {name}", {name: assembly.name, subtype: type});
+        this.log("Updating: {assName}", {assName: assembly.name, subtype: type});
         try {
           await this.main.vega.downloadFile("assemblies", type, assembly.name, this, null);
           if (this.state.running) this.updatePending = true;

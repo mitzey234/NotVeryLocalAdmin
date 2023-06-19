@@ -45,7 +45,6 @@ async function onMessage (m) {
 }
 
 function start() {
-    const writer = fs.createWriteStream(settings.outputPath);
 
     return Axios({
         method: 'get',
@@ -62,6 +61,7 @@ function start() {
         responseType: 'stream',
     }).then(response => {
         return new Promise((resolve, reject) => {
+            const writer = fs.createWriteStream(settings.outputPath);
             response.data.pipe(writer);
             let error = null;
             writer.on('error', err => {
