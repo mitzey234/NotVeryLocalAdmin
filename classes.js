@@ -1007,12 +1007,22 @@ class Server {
         continue;
       }
     }
+    let filtered = [];
+    for (i in usedFolders) {
+      var p = usedFolders[i];
+      while (p != "") {
+        if (p.trim() != "" && !filtered.includes(p)) filtered.push(p);
+        p = path.parse(p).dir;
+      }
+    }
+    usedFolders = filtered;
     for (i in folders) {
       try {
-        if (usedFolders.includes(path.join(path.normalize(joinPaths(folders[i].p)), folders[i].filename)) || isIgnored(targetFolder, path.join(targetFolder, joinPaths(folders[i].p) || "", folders[i].filename))) continue;
+        if (isIgnored(targetFolder, path.join(targetFolder, joinPaths(folders[i].p) || "", folders[i].filename))) continue;
       } catch (e) {
         this.error("Failed to check if file is ignored: {e}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
       }
+      if (usedFolders.includes(path.join(path.normalize(joinPaths(folders[i].p)), folders[i].filename))) continue;
       this.log("Deleting: {path}", {path: path.join(joinPaths(folders[i].p) || "", folders[i].filename)});
       try {
         fs.rmSync(path.join(targetFolder, joinPaths(folders[i].p) || "", folders[i].filename), { recursive: true });
