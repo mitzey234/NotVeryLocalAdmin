@@ -2532,6 +2532,14 @@ class NVLA extends EventEmitter {
     this.ServerManager.servers.forEach(async (server) => server.stop(true));
   }
 
+  async handleConfigEdit (property, subProperty) {
+    //We handle situations where config edits require restarting / reconfiguring things live here
+  }
+
+  async restart() {
+    console.log("This is not implimented yet");
+  }
+
   async start() {
     try {
       if (this.config.seq.enabled) await this.alternative.start();

@@ -1002,7 +1002,6 @@ class queryRequest extends messageType {
      * @param obj {object} */
     constructor(main, obj) {
         super(main, obj);
-        console.log(obj);
         if (obj.id == null || obj.id == undefined) throw "type 'queryRequest' requires 'id'";
         if (obj.requestType == null || obj.requestType == undefined) throw "type 'queryRequest' requires 'requestType'";
         this.data = obj.data;
@@ -1013,7 +1012,6 @@ class queryRequest extends messageType {
     /** 
      * @param {import("./socket")["Client"]["prototype"]} s */
     async execute(s) {
-        console.log(this);
         if (this.requestType == "machineConfig") {
             let data = JSON.parse(JSON.stringify(this.main.config, null));
             s.sendMessage({type: "queryResponse", id: this.id, data: data});
@@ -1022,6 +1020,82 @@ class queryRequest extends messageType {
 }
 classes.set(queryRequest.name, queryRequest);
 
+
+class stopMachine extends messageType {
+
+    /**
+     * @param main {messageHandler}
+     * @param obj {object} */
+    constructor(main, obj) {
+        super(main, obj);
+    }
+
+    /** 
+     * @param {import("./socket")["Client"]["prototype"]} s */
+    async execute(s) {
+        this.log("Web requested machine shutdown");
+        this.main.stop();
+    }    
+}
+classes.set(stopMachine.name, stopMachine);
+
+class restartMachine extends messageType {
+
+    /**
+     * @param main {messageHandler}
+     * @param obj {object} */
+    constructor(main, obj) {
+        super(main, obj);
+    }
+
+    /** 
+     * @param {import("./socket")["Client"]["prototype"]} s */
+    async execute(s) {
+        this.log("Web requested machine restart");
+        this.main.restart();
+    }    
+}
+classes.set(restartMachine.name, restartMachine);
+
+class editConfig extends messageType {
+    /** @type {object}*/
+    data;
+
+    /** @type string */
+    property;
+
+    /** @type string */
+    subProperty;
+
+    /**
+     * @param main {messageHandler}
+     * @param obj {object} */
+    constructor(main, obj) {
+        super(main, obj);
+        if (obj.data == null || obj.data == undefined) throw "type 'editConfig' requires 'data'";
+        if (obj.property == null || obj.property == undefined) throw "type 'editConfig' requires 'property'";
+        this.data = obj.data;
+        this.property = obj.property;
+        this.subProperty = obj.subProperty;
+    }
+
+    /** 
+     * @param {import("./socket")["Client"]["prototype"]} s */
+    async execute(s) {
+        this.log("Web changed machine config");
+        let config = this.main.config;
+        if (this.subProperty != null && this.subProperty != undefined) {
+            if (config[this.subProperty] == null || config[this.subProperty] == undefined) config[this.subProperty] = {};
+            config[this.subProperty][this.property] = this.data;
+        } else {
+            config[this.property] = this.data;
+        }
+        this.main.config = config;
+        fs.writeFileSync(path.join(__dirname, "config.json"), JSON.stringify(this.main.config, null, 4));
+        await this.main.handleConfigEdit(this.property, this.subProperty);
+    }    
+}
+classes.set(editConfig.name, editConfig);
 
 
 
