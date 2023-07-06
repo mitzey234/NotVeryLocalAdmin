@@ -1112,28 +1112,42 @@ class Server {
   }
 
 
-
+  getPluginConfigFilesInProg = false;
+  getDedicatedServerConfigFilesInProg = false;
+  getGlobalDedicatedServerConfigFilesInProg = false;
 
   async getPluginConfigFiles() {
-    await this.getConfigs.bind(this)("pluginConfig");
-    await this.resetPluginConfigWatcher();
-    this.pluginLockfiles.clear();
+    if (this.getPluginConfigFilesInProg) while (this.getPluginConfigFilesInProg) await new Promise((resolve, reject) => setTimeout(resolve, 100));
+    this.getPluginConfigFilesInProg = true;
+    try {
+      await this.getConfigs.bind(this)("pluginConfig");
+      await this.resetPluginConfigWatcher();
+      this.pluginLockfiles.clear();
+    } catch (e) {}
+    this.getPluginConfigFilesInProg = false;
   }
 
   async getDedicatedServerConfigFiles() {
-    await this.getConfigs.bind(this)("serverConfig");
-    await this.resetServerConfigWatcher();
-    this.configLockfiles.clear();
+    if (this.getDedicatedServerConfigFilesInProg) while (this.getDedicatedServerConfigFilesInProg) await new Promise((resolve, reject) => setTimeout(resolve, 100));
+    this.getDedicatedServerConfigFilesInProg = true;
+    try {
+      await this.getConfigs.bind(this)("serverConfig");
+      await this.resetServerConfigWatcher();
+      this.configLockfiles.clear();
+    } catch (e) {}
+    this.getDedicatedServerConfigFilesInProg = false;
   }
 
   async getGlobalDedicatedServerConfigFiles() {
-    await this.getConfigs.bind(this)("globalServerConfig");
-    await this.resetGlobalServerConfigWatcher();
-    this.globalConfigLockfiles.clear();
+    if (this.getGlobalDedicatedServerConfigFilesInProg) while (this.getGlobalDedicatedServerConfigFilesInProg) await new Promise((resolve, reject) => setTimeout(resolve, 100));
+    this.getGlobalDedicatedServerConfigFilesInProg = true;
+    try {
+      await this.getConfigs.bind(this)("globalServerConfig");
+      await this.resetGlobalServerConfigWatcher();
+      this.globalConfigLockfiles.clear();
+    } catch (e) {}
+    this.getGlobalDedicatedServerConfigFilesInProg = true;
   }
-
-
-
 
   async grabAssemblies (type) {
     let data;
@@ -1221,16 +1235,35 @@ class Server {
     this.log("Installed "+names, null, {color: 6});
   }
 
+  getPluginsInProg = false;
+  getCustomAssembliesInProg = false;
+  getDependenciesInProg = false;
+
   async getPlugins() {
-    await this.grabAssemblies.bind(this)("plugin");
+    if (this.getPluginsInProg) while (this.getPluginsInProg) await new Promise((resolve, reject) => setTimeout(resolve, 100));
+    this.getPluginsInProg = true;
+    try {
+      await this.grabAssemblies.bind(this)("plugin");
+    } catch (e) {}
+    this.getPluginsInProg = false;
   }
 
   async getCustomAssemblies() {
-    await this.grabAssemblies.bind(this)("customAssembly");
+    if (this.getCustomAssembliesInProg) while (this.getCustomAssembliesInProg) await new Promise((resolve, reject) => setTimeout(resolve, 100));
+    this.getCustomAssembliesInProg = true;
+    try {
+      await this.grabAssemblies.bind(this)("customAssembly");
+    } catch (e) {}
+    this.getCustomAssembliesInProg = true;
   }
 
   async getDependencies() {
-    await this.grabAssemblies.bind(this)("dependency");
+    if (this.getDependenciesInProg) while (this.getDependenciesInProg) await new Promise((resolve, reject) => setTimeout(resolve, 100));
+    this.getDependenciesInProg = true;
+    try {
+      await this.grabAssemblies.bind(this)("dependency");
+    } catch (e) {}
+    this.getDependenciesInProg = true;
   }
 
   async configure() {
