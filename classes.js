@@ -1528,7 +1528,9 @@ class Server {
 
   async handleExit(code, signal) {
     this.log("Server Process Exited with {code} - {signal}", { code: code, signal: signal }, { color: 4 });
-    this.socketServer.close();
+    try {
+      this.socketServer.close();
+    } catch (e) {}
     this.socketServer = null;
     if (this.monitorTimeout != null) {
       clearTimeout(this.monitorTimeout);
@@ -1732,7 +1734,12 @@ class Server {
   }
 
   handleServerConnection (socket) {
-    if (socket.remoteAddress != "127.0.0.1" && socket.remoteAddress != "::ffff:127.0.0.1") return socket.end();
+    if (socket.remoteAddress != "127.0.0.1" && socket.remoteAddress != "::ffff:127.0.0.1") {
+      try {
+        socket.end();
+      } catch (e) {}
+      return;
+    }
     if (this.socket != null) return;
     this.log("Console Socket Connected");
     this.socket = socket;
@@ -1758,7 +1765,12 @@ class Server {
     if (this.socket == null) return -1;
     command = command.trim();
     if (this.main.vega.connected) this.main.vega.client.sendMessage(new mt.serverConsoleLog(this.config.id, "> "+command, 3));
-    this.socket.write(Buffer.concat([toInt32(command.length), Buffer.from(command)]));
+    try {
+      this.socket.write(Buffer.concat([toInt32(command.length), Buffer.from(command)]));
+    } catch (e) {
+      this.error("Console Socket Write Error: {e}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e}, {color: 4});
+      return -2;
+    }
   }
 
   async start() {

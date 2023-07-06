@@ -68,12 +68,15 @@ function onMessageComplete () {
   try {
     final = JSON.parse(final.toString());
   } catch (e) {
-    console.log(e);
+    this.emit("error", e);
     return;
   }
   this.emit('message', final, this);
 }
 
+/**
+ * @this {exports.Client}
+ */
 function sendMessage(object) {
   if (this.readyState != 'open') return;
   if (typeof object == "object" && !Buffer.isBuffer(object)) {
@@ -88,7 +91,12 @@ function sendMessage(object) {
     var dataLen = object.length;
     head.writeBigUInt64BE(BigInt(dataLen), 0);
     object = Buffer.concat([head,object]);
-    this.write(object);
+    try {
+      this.write(object);
+    } catch (e) {
+      console.error("Error while writing to socket");
+      return -1;
+    }
     return dataLen;
   } else {
     throw "Unknown type of object: " + typeof object;
