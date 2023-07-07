@@ -21,6 +21,7 @@ exports.Client = class Client extends Net.Socket {
     this.buffered = 0;
     this.messageLength = null;
     this.preBuffer = null;
+    this.send = sendMessage.bind(this);
     this.sendMessage = sendMessage.bind(this);
     this.on('data', onData.bind(this));
   }
@@ -107,6 +108,8 @@ function onConnection (socket) {
   socket.buffer = [];
   socket.buffered = 0;
   socket.messageLength = null;
+  socket.preBuffer = null;
+  socket.send = sendMessage.bind(socket);
   socket.sendMessage = sendMessage.bind(socket);
   socket.on('data', onData.bind(socket));
   this.emit("socket", socket);
