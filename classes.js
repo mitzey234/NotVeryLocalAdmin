@@ -1123,7 +1123,10 @@ class Server {
       await this.getConfigs.bind(this)("pluginConfig");
       await this.resetPluginConfigWatcher();
       this.pluginLockfiles.clear();
-    } catch (e) {}
+    } catch (e) {
+      this.errorState = "Failed to get plugin configs: " + e != null ? e.code || e.message || e : e;
+      this.error("Failed to get plugin configs: {e}", { e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e });
+    }
     this.getPluginConfigFilesInProg = false;
   }
 
@@ -1134,7 +1137,10 @@ class Server {
       await this.getConfigs.bind(this)("serverConfig");
       await this.resetServerConfigWatcher();
       this.configLockfiles.clear();
-    } catch (e) {}
+    } catch (e) {
+      this.errorState = "Failed to get dedicated server configs: " + e != null ? e.code || e.message || e : e;
+      this.error("Failed to get dedicated server configs: {e}", { e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e });
+    }
     this.getDedicatedServerConfigFilesInProg = false;
   }
 
@@ -1145,8 +1151,11 @@ class Server {
       await this.getConfigs.bind(this)("globalServerConfig");
       await this.resetGlobalServerConfigWatcher();
       this.globalConfigLockfiles.clear();
-    } catch (e) {}
-    this.getGlobalDedicatedServerConfigFilesInProg = true;
+    } catch (e) {
+      this.errorState = "Failed to get global dedicated server configs: " + e != null ? e.code || e.message || e : e;
+      this.error("Failed to get global dedicated server configs: {e}", { e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e });
+    }
+    this.getGlobalDedicatedServerConfigFilesInProg = false;
   }
 
   async grabAssemblies (type) {
@@ -1244,7 +1253,10 @@ class Server {
     this.getPluginsInProg = true;
     try {
       await this.grabAssemblies.bind(this)("plugin");
-    } catch (e) {}
+    } catch (e) {
+      this.errorState = "Failed to get plugins: " + e != null ? e.code || e.message || e : e;
+      this.error("Failed to get plugins: {e}", { e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e });
+    }
     this.getPluginsInProg = false;
   }
 
@@ -1253,8 +1265,11 @@ class Server {
     this.getCustomAssembliesInProg = true;
     try {
       await this.grabAssemblies.bind(this)("customAssembly");
-    } catch (e) {}
-    this.getCustomAssembliesInProg = true;
+    } catch (e) {
+      this.errorState = "Failed to get custom assemblies: " + e != null ? e.code || e.message || e : e;
+      this.error("Failed to get custom assemblies: {e}", { e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e });
+    }
+    this.getCustomAssembliesInProg = false;
   }
 
   async getDependencies() {
@@ -1262,8 +1277,11 @@ class Server {
     this.getDependenciesInProg = true;
     try {
       await this.grabAssemblies.bind(this)("dependency");
-    } catch (e) {}
-    this.getDependenciesInProg = true;
+    } catch (e) {
+      this.errorState = "Failed to get dependencies: " + e != null ? e.code || e.message || e : e;
+      this.error("Failed to get dependencies: {e}", { e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e });
+    }
+    this.getDependenciesInProg = false;
   }
 
   async configure() {
