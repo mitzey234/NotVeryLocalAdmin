@@ -1403,6 +1403,7 @@ class Server {
 
   async update(skipConfig) {
     if (this.state.updating) return;
+    this.errorState = null;
     this.state.updating = true;
     this.stateUpdate();
     this.log("Updating server {label}", {label: this.config.label});
