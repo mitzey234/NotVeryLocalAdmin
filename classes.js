@@ -1719,7 +1719,7 @@ class Server {
       let code = parseInt(data.shift())
       if (code >= 16) {
         // handle control code
-        this.log("Event Fired: {codename}", {codename: events[code.toString()], code: code}, {color: 6});
+        if (events[code.toString()] != null) this.log("Event Fired: {codename}", {codename: events[code.toString()], code: code}, {color: 6});
         this.handleServerEvent(code);
       } else if (code != 0) {
         let length = (data.shift() << 24) | (data.shift() << 16) | (data.shift() << 8) | data.shift()
