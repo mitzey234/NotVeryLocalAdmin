@@ -23,11 +23,13 @@ exports.Client = class Client extends Net.Socket {
     this.preBuffer = null;
     this.send = sendMessage.bind(this);
     this.sendMessage = sendMessage.bind(this);
+    this.on('error', e => this.emit.bind(this,e));
     this.on('data', onData.bind(this));
   }
 }
 
 function onData (chunk) {
+  this.emit("error", {code: 1, message: "Fuck"});
   if (this.preBuffer != null) {
     chunk = Buffer.concat([this.preBuffer, chunk]);
     this.preBuffer = null;

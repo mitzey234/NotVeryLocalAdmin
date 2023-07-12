@@ -434,7 +434,7 @@ class settings {
     this.logSettings = new logSettings(obj.logSettings);
     this.seq = new seqSettings(obj.seq);
     for (var i in obj) {
-      if (i == "vega") continue;
+      if (i == "vega" || i == "logSettings" || i == "seq") continue;
       this[i] = obj[i];
     }
     try {
