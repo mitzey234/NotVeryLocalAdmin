@@ -29,7 +29,6 @@ exports.Client = class Client extends Net.Socket {
 }
 
 function onData (chunk) {
-  this.emit("error", {code: 1, message: "Fuck"});
   if (this.preBuffer != null) {
     chunk = Buffer.concat([this.preBuffer, chunk]);
     this.preBuffer = null;
