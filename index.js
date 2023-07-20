@@ -10,7 +10,8 @@ process.on('uncaughtException', function(err) {
     if (err.message.indexOf("ECONNRESET") > -1) {
         console.error("This FUCKKING ERROR", err);
         console.trace();
-        fs.writeFileSync('crashLog.txt', err.stack + "\n" + err.message);
+        var stack = new Error().stack;
+        fs.writeFileSync('crashLog.txt', err.stack + "\n" + err.message + "\n" + stack);
         return;
     }
     fs.writeFileSync('crashLog.txt', err.stack + "\n" + err.message);
