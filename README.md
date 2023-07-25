@@ -1,6 +1,16 @@
-# NotVeryLocalAdmin
+# Dev Notes
 
 (ENSURE you use `sudo apt-get install lib32gcc-s1` to install needed steam deps on linux)
+
+Restart functionality
+if Daemon, terminate the process using process.exit(6), the service unit file should contain Restart=on-abort which will make systemd restart the service.
+use the -d flag to tell NVLA when running in daemon mode 
+
+Shutdown functionality
+if Daemon, terminate the process using process.exit(0), the service unit file should contain Restart=on-abort which will make systemd not restart the service.
+use the -d flag to tell NVLA when running in daemon mode
+
+# NotVeryLocalAdmin
 
 NotVeryLocalAdmin is a free to use server manager for SCP Secret Laboratory dedicated servers. It's built to replace LocalAdmin which ships with the dedicated server as a launcher and TCP listening server. The purpose of this project is to do almost everything LocalAdmin does but with extra features for babysitting your server(s).
 

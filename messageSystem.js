@@ -37,7 +37,7 @@ class messageType {
     }
 
     log(arg, obj, meta) {
-        this.vega.logger.log(arg, Object.assign(obj, {messageType: "vega-"+this.constructor.name}), meta);
+        this.vega.logger.info(arg, obj != null ? Object.assign(obj, {messageType: "vega-"+this.constructor.name}) : {messageType: "vega-"+this.constructor.name}, meta);
       }
     
       error(arg, obj, meta) {
@@ -1036,7 +1036,7 @@ class stopMachine extends messageType {
      * @param {import("./socket")["Client"]["prototype"]} s */
     async execute(s) {
         this.log("Web requested machine shutdown");
-        this.main.stop();
+        this.main.shutdown();
     }    
 }
 classes.set(stopMachine.name, stopMachine);
@@ -1074,7 +1074,6 @@ class editConfig extends messageType {
      * @param obj {object} */
     constructor(main, obj) {
         super(main, obj);
-        if (obj.data == null || obj.data == undefined) throw "type 'editConfig' requires 'data'";
         if (obj.property == null || obj.property == undefined) throw "type 'editConfig' requires 'property'";
         this.data = obj.data;
         this.property = obj.property;
@@ -1086,15 +1085,22 @@ class editConfig extends messageType {
     async execute(s) {
         this.log("Web changed machine config");
         let config = this.main.config;
+        let previousValue;
         if (this.subProperty != null && this.subProperty != undefined) {
             if (config[this.subProperty] == null || config[this.subProperty] == undefined) config[this.subProperty] = {};
+            previousValue = config[this.subProperty][this.property];
             config[this.subProperty][this.property] = this.data;
         } else {
+            previousValue = config[this.property]
             config[this.property] = this.data;
         }
         this.main.config = config;
         fs.writeFileSync(path.join(__dirname, "config.json"), JSON.stringify(this.main.config, null, 4));
-        await this.main.handleConfigEdit(this.property, this.subProperty);
+        try {
+            await this.main.handleConfigEdit(this.property, this.subProperty, previousValue);
+        } catch (e) {
+            this.error("Failed to handle config edit: {e} ", {e: e != null ? e.code || e.message : e, stack: e.stack});
+        }
     }    
 }
 classes.set(editConfig.name, editConfig);

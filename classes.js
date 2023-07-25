@@ -21,6 +21,7 @@ const osAlt = require('os-utils');
 const os = require('os');
 const udp = require('dgram');
 const exp = require("constants");
+const { transport } = require("winston");
 
 function getCPUPercent () {
     return new Promise((resolve, reject) => {
@@ -2487,6 +2488,14 @@ class NVLA extends EventEmitter {
 
   cpuBalancingSupported;
 
+  daemonMode = false;
+
+  /** @type function */
+  restart;
+
+  /** @type function */
+  shutdown;
+
   constructor() {
     super();
     this.config = new settings();
@@ -2502,25 +2511,7 @@ class NVLA extends EventEmitter {
       }),
     ];
     if (this.config.logSettings.enabled) {
-      transports.push(
-        new winston.transports.DailyRotateFile({
-          frequency: "24h",
-          datePattern: "YYYY-MM-DD",
-          filename: path.join(
-            this.config.logSettings.logfolder,
-            "Main-%DATE%.log"
-          ),
-          maxsize: this.config.logSettings.maxSize,
-          maxFiles: this.config.logSettings.maxCount,
-          tailable: true,
-          level: "verbose",
-          format: winston.format.printf((info) => {
-            processPrintF(info);
-            info.message = info.message.replace(ansiStripRegex, "");
-            return info.message;
-          }),
-        })
-      );
+      transports.push(this.createRotatedLogTransport());
     }
 
     this.logger = winston.createLogger({
@@ -2665,20 +2656,132 @@ class NVLA extends EventEmitter {
     this.ServerManager.servers.forEach(async (server) => server.stop(true));
   }
 
-  async handleConfigEdit (property, subProperty) {
-    //We handle situations where config edits require restarting / reconfiguring things live here
+  createRotatedLogTransport () {
+    return new winston.transports.DailyRotateFile({
+      frequency: "24h",
+      datePattern: "YYYY-MM-DD",
+      filename: path.join(
+        this.config.logSettings.logfolder,
+        "Main-%DATE%.log"
+      ),
+      maxsize: this.config.logSettings.maxSize,
+      maxFiles: this.config.logSettings.maxCount,
+      tailable: true,
+      level: "verbose",
+      format: winston.format.printf((info) => {
+        processPrintF(info);
+        info.message = info.message.replace(ansiStripRegex, "");
+        return info.message;
+      }),
+    });
   }
 
-  async restart() {
-    console.log("This is not implimented yet");
+  async handleConfigEdit (property, subProperty, previousValue) {
+    let value;
+    let config = this.config;
+    if (subProperty != null && subProperty != undefined) {
+      if (config[subProperty] == null || config[subProperty] == undefined) config[subProperty] = {};
+      value = config[subProperty][property];
+    } else {
+      value = config[property]
+    }
+    if (value == previousValue) return;
+    switch (subProperty || property) {
+      case "echoServerAddress":
+      case "echoServerPort":
+        this.echoServer.close();
+        this.echoServer = udp.createSocket('udp4');
+        this.echoServer.on('error', this.echoServerError.bind(this));
+        this.echoServer.on('message', this.echoServerMessage.bind(this));
+        this.echoServer.bind(this.config.echoServerPort, this.config.echoServerAddress);
+        this.log("Rebound Echo Server");
+        break;
+      case "level":
+        this.logger.transports.forEach(t => t instanceof winston.transports.Console ? t.level = value : null);
+        break;
+      case "verkey":
+        if (value == null || value.trim() == "") config.verkey = null;
+        else config.verkey = value.trim();
+        if (config.verkey == null) {
+          if (fs.existsSync(verkeyPath)) fs.rmSync(verkeyPath);
+        } else {
+          if (!fs.existsSync(path.parse(verkeyPath).dir)) fs.mkdirSync(path.parse(verkeyPath).dir, {recursive: true});
+          fs.writeFileSync(verkeyPath, config.verkey);
+        }
+        break;
+      case "cpuBalance":
+        if (!this.cpuBalancingSupported) return;
+        if (value) {
+          this.rebalanceServers();
+        } else {
+          this.resetServerBalance();
+        }
+        break;
+      case "cpusPerServer":
+        if (!this.cpuBalancingSupported || !config.cpuBalance) return;
+        this.rebalanceServers();
+        break;
+      case "seq":
+        if (property == null || property == undefined) return;
+        switch (property) {
+          case "enabled":
+            if (value) {
+              this.alternative.start();
+            } else {
+              this.alternative.stop();
+            }
+            break;
+          case "apiKey":
+          case "secure":
+          case "host":
+            if (this.alternative.process == null || this.alternative.stopping) return;
+            this.alternative.process.kill();
+            break;
+        }
+        break;
+      case "logSettings":
+        if (property == null || property == undefined) return;
+        switch (property) {
+          case "enabled":
+            if (value) {
+              let transport = this.createRotatedLogTransport();
+              this.logger.add(transport);
+            } else {
+              this.logger.transports.forEach(t => t instanceof winston.transports.DailyRotateFile ? this.logger.remove(t) : null);
+            }
+            break;
+          case "maxSize":
+          case "maxCount":
+          case "logfolder":
+            if (!this.config.logSettings.enabled) return;
+            this.logger.transports.forEach(t => t instanceof winston.transports.DailyRotateFile ? this.logger.remove(t) : null);
+            let transport = this.createRotatedLogTransport();
+            this.logger.add(transport);
+            break;
+        }
+        break;
+      case "vega":
+        if (property == null || property == undefined) return;
+        switch (property) {
+          case "host":
+          case "port":
+          case "password":
+          case "id":
+            if (this.vega.connected) this.vega.disconnect();
+        }
+        break;
+      case "serversFolder":
+        fs.renameSync(previousValue, value);
+    }
   }
 
-  async start() {
+  async start(daemon = false) {
     try {
       if (this.config.seq.enabled) await this.alternative.start();
     } catch (e) {
       this.error("Failed to start winston seq: {e}", { e: e != null ? e != null ? e.code || e.message || e : e : e, stack: e != null ? e.stack : e});
     }
+    this.daemonMode = daemon;
     this.log("Welcome to "+chalk.green("NotVeryLocalAdmin")+" v"+pack.version+" By "+chalk.cyan(pack.author)+", console is ready");
     this.stopped = false;
     var serversPath = defaultServersPath;
@@ -2736,6 +2839,34 @@ class NVLA extends EventEmitter {
             commands.push("taskset -p " + convertToMask(main) + " " + server.process.pid);
         } catch (e) {
           this.error("Failed generating mask for: {main} {secondaries} {server}\n{e}", { main: main, secondaries: secondaries, server: server != null ? server.config.label : "null", e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e });
+        }
+        for (let v in commands) {
+            let command = commands[v];
+            try {
+                let exitCode = await runCommand(command);
+                if (exitCode != 0) throw "Error occured setting the process afffinity";
+                this.log("CPU Affinity set - " + command);
+            } catch (e) {
+                this.error("Failed running command: {command}\n{e}", { command: command, e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e });
+            }
+        }
+    }
+    this.cpuRebalanceInProg = false;
+  }
+
+  async resetServerBalance () {
+    while (this.cpuRebalanceInProg) await new Promise(r => setTimeout(r, 500));
+    this.cpuRebalanceInProg = true;
+    for (var entry of this.ServerManager.servers.entries()) {
+        var server = entry[1];
+        if (!server.state.running || server.process == null || server.process.pid == null) continue;
+        let cpus = [];
+        for (let x = 0; x < availableCpus; x++) cpus.push(cpu);
+        let commands = [];
+        try {
+            commands.push("taskset -a -p " + convertToMask(main) + " " + server.process.pid);
+        } catch (e) {
+          this.error("Failed generating mask for: {main} {server}\n{e}", { main: main, server: server != null ? server.config.label : "null", e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e });
         }
         for (let v in commands) {
             let command = commands[v];

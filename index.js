@@ -1,10 +1,19 @@
 const classes = require("./classes");
 const chalk = require("chalk");
 const fs = require("fs");
+const {spawn} = require("child_process");
 const pack = require("./package.json");
 
+let arguments = process.argv.filter(i => i.trim() != "");
+
+try {
+    if (arguments.includes("-child")) process.send({type: "ready"});
+} catch (e) {}
+
 let NVLA = new classes.NVLA;
-NVLA.start();
+NVLA.restart = restart;
+NVLA.shutdown = quit;
+NVLA.start(arguments.includes("-d"));
 
 process.on('uncaughtException', function(err) {
     if (err.message.indexOf("ECONNRESET") > -1) {
@@ -121,20 +130,7 @@ async function evaluate(args) {
     } else if (command == "version" || command == "v") {
         console.log("Running NVLA - " + pack.version);
     } else if (command == "fullRestart" || command == "fullr") {
-        return;
-        var inst = true;
-        for (i in servers) {
-            var server = servers[i];
-            if (server.proc != null) inst = false;
-        }
-        if (inst) return fullRestart();
-        triggerFullRestart = !triggerFullRestart;
-        if (triggerFullRestart) console.log("Full restart will be triggered when servers are inactive");
-        else console.log("Full restart cancelled");
-    } else if (command == "forceFullRestart" || command == "ffullr") {
-        return;
-        console.log("Forcing full restart of program..");
-        fullRestart();
+        restart();
     } else {
         console.log("Unknown Command: " + chalk.green(command));
     }
@@ -152,7 +148,10 @@ function cleanInput (args) {
 
 var exiting = false;
 function quit () {
-  if (exiting) return;
+  if (exiting) {
+    console.log(chalk.yellow("Force quitting.."));
+    return process.exit(1);
+  }
   stdin.pause();
   exiting = true;
   console.log(chalk.yellow("Process exiting.."));
@@ -171,6 +170,44 @@ function checkshutdown () {
         process.exit(0);
     }
 }
+
+function restart () {
+    if (exiting) return;
+    stdin.pause();
+    exiting = true;
+    console.log(chalk.yellow("Process restarting.."));
+    NVLA.stop();
+    NVLA.on("serverStateChange", checkRestart);
+    checkRestart();
+}
+
+function checkRestart () {
+    var allStopped = true;
+    NVLA.ServerManager.servers.forEach(function (server) {
+        if (server.process != null) allStopped = false;
+    });
+    if (allStopped) {
+        console.log(chalk.green("All servers stopped, restarting"));
+        if (NVLA.daemonMode) process.exit(6);
+        var replacement = spawn(process.execPath, [__filename, "-child"], {stdio: ['ignore', "ignore", "ignore", 'ipc'], detached: true});
+        replacement.on("message", function (m) {
+            if (m.type == "ready") {
+                this.disconnect();
+                this.unref();
+                process.exit(0);
+            }
+        }.bind(replacement));
+        replacement.on("error", function (e) {
+            console.error(e);
+            process.exit(1);
+        });
+        replacement.on("exit", function (code) {
+            console.error("Child exited with code " + code);
+            process.exit(code);
+        })
+    }
+}
+
 
 var stdin = process.openStdin();
 stdin.addListener("data", function(d) {
