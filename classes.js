@@ -616,6 +616,71 @@ class serverState {
   idleMode = false;
 }
 
+class FileEvent {
+  /** @type string */
+  type;
+
+  /** @type string */
+  event;
+
+  /** @type string */
+  filePath;
+  
+  /** @type string */
+  parentType;
+  
+  /** @type string */
+  fid;
+  
+  constructor (type, event, filePath, parentType) {
+      this.type = type;
+      this.event = event;
+      this.filePath = filePath;
+      this.parentType = parentType;
+      this.fid = crypto.createHash('sha256').update(filePath + type + parentType).digest('hex');
+  }
+}
+
+class FileEventHandler {
+    
+  /** @type Server */
+  main;
+
+  /** @type Map<string, FileEvent> */
+  events = new Map();
+
+  timeout;
+
+  /**
+   * @param {NVLAManager["init"]["prototype"]} main 
+   */
+  constructor (main) {
+      this.main = main;
+  }
+
+  registerEvent (type, event, filePath, parentType) {
+      if (this.timeout != null) {
+          clearTimeout(this.timeout);
+          this.timeout = null;
+      }
+      this.timeout = setTimeout(this.executeEvents.bind(this), 750);
+      let ev = new FileEvent(type, event, filePath, parentType);
+      //if (this.events.has(ev.fid)) console.log("Overriding duplicate event");
+      this.events.set(ev.fid, ev);
+  }
+
+  executeEvents () {
+      this.timeout = null;
+      let arr = Array.from(this.events.values());
+      this.events.clear();
+      for (let i in arr) {
+          /** @type FileEvent */
+          let fileEvent = arr[i];
+          this.main.configFileEvent.bind(this.main)(fileEvent.type, fileEvent.event, fileEvent.filePath);
+      }
+  }
+}
+
 class Server {
   /** @type {import('child_process').ChildProcess } */
   process;
@@ -670,6 +735,9 @@ class Server {
 
   globalConfigLockfiles = new Map();
 
+  /** @type FileEventHandler */
+  fileEventHandler;
+
   /** @type serverState */
   state;
 
@@ -721,6 +789,8 @@ class Server {
 
   playerlistTimeoutCount = 0;
 
+  restartCount = 0;
+
   /** @type number */
   percent;
 
@@ -735,6 +805,7 @@ class Server {
     this.main = main;
     this.logger = main.logger.child({ type: this });
     this.config = config;
+    this.fileEventHandler = new FileEventHandler(this);
     this.state = new serverState();
     this.serverContainer = path.join(path.resolve(this.main.config.serversFolder), this.config.id);
     this.serverInstallFolder = path.join(this.serverContainer, "scpsl");
@@ -839,21 +910,20 @@ class Server {
     this.globalConfigFolderWatch.on("error", e => this.error("Global Config Folder Watch Error: {e}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e}));
   }
 
-
-
   async onGlobalConfigFileEvent(event, filePath) {
-    this.configFileEvent("globalServerConfig", event, filePath);
+    this.fileEventHandler.registerEvent("globalServerConfig", event, filePath);
   }
 
   async onConfigFileEvent(event, filePath) {
-    this.configFileEvent("serverConfig", event, filePath);
+    this.fileEventHandler.registerEvent("serverConfig", event, filePath);
   }
 
   async onPluginConfigFileEvent(event, filePath) {
-    this.configFileEvent("pluginConfig", event, filePath);
+    this.fileEventHandler.registerEvent("pluginConfig", event, filePath);
   }
 
-  /** @type Map<string,{type: string, event: string, filePath: string}> */
+  /** This queue puts a pause on file changes until after the server has finished starting up
+   * @type Map<string,{type: string, event: string, filePath: string}> */
   fileEventQueue = new Map();
 
   async processFileEventQueue () {
@@ -897,7 +967,7 @@ class Server {
       this.error("Failed to check if file is ignored: {e}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
     }
     if (filePath.startsWith("dependencies") || filePath.endsWith(".dll")) return;
-    if (lockfiles.has(filePath)) return;
+    if (lockfiles.has(filePath)) return lockfiles.delete(filePath);
     if (event == "add" || event == "change") {
       let p = path.parse(path.normalize(filePath)).dir.split(path.sep);
       let name = path.parse(filePath).base;
@@ -950,22 +1020,20 @@ class Server {
       let filePath = path.join(targetFolder, joinPaths(file.path), file.name);
       if (!usedFolders.includes(joinPaths(file.path))) usedFolders.push(joinPaths(file.path));
       try {
-        if (!fs.existsSync(path.parse(filePath).dir)) fs.mkdirSync(path.parse(filePath).dir, { recursive: true });
-      } catch (e) {
-        this.errorState = "Failed to create "+shortName+" directory: " + e != null ? e.code || e.message || e : e;
-        this.error("Failed to create "+shortName+" directory: {e}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
-        continue;
-      }
-      try {
         if (fs.existsSync(filePath) && await loadMD5(filePath) == file.md5) {
           this.log("Up to date: {path}", { path: joinPaths(file.path) + path.sep + file.name });
           continue;
         }
         if (this.state.running) this.updatePending = true;
+        try {
+          if (!fs.existsSync(path.parse(filePath).dir)) fs.mkdirSync(path.parse(filePath).dir, { recursive: true });
+        } catch (e) {
+          this.errorState = "Failed to create "+shortName+" directory: " + e != null ? e.code || e.message || e : e;
+          this.error("Failed to create "+shortName+" directory: {e}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
+          continue;
+        }
         this.log("Writing ("+file.md5+"): {path}", { path: joinPaths(file.path) + path.sep + file.name });
-        if (!lockFiles.has(path.join(joinPaths(file.path), file.name))) lockFiles.set(path.join(joinPaths(file.path), file.name), 0);
-        let lockfile = lockFiles.get(path.join(joinPaths(file.path), file.name))+1;
-        lockFiles.set(path.join(joinPaths(file.path), file.name), lockfile);
+        lockFiles.set(path.join(joinPaths(file.path), file.name), 1);
         await this.main.vega.downloadFile("configFile", type, file.name, this, file.path);
         let localmd5 = await loadMD5(filePath);
         if (localmd5 != file.md5) throw "MD5 mismatch: " + localmd5;
@@ -992,9 +1060,7 @@ class Server {
         try {
           if (!isIgnored(targetFolder, path.join(targetFolder, joinPaths(file.p) || "", file.filename)) && !safe && (type == "pluginConfig" ? !path.join(joinPaths(file.p) || "", file.filename).startsWith("dependencies") : true) && !(file.filename.endsWith(".dll") && path.parse(path.join(joinPaths(file.p) || "", file.filename)).dir == "")) {
             this.log("Deleting: {path}", {path: path.join(joinPaths(file.p) || "", file.filename )});
-            if (!lockFiles.has(path.join(joinPaths(file.p) || "", file.filename))) lockFiles.set(path.join( joinPaths(file.p) || "", file.filename), 0);
-            let lockfile = lockFiles.get(path.join(joinPaths(file.p) || "", file.filename))+1;
-            lockFiles.set(path.join(joinPaths(file.p) || "", file.filename), lockfile);
+            //lockFiles.set(path.join(joinPaths(file.p) || "", file.filename), 1);
             fs.rmSync(path.join(targetFolder, joinPaths(file.p) || "", file.filename), { recursive: true });
             if (this.state.running) this.updatePending = true;
           }
@@ -1078,32 +1144,26 @@ class Server {
     let filePath = path.join(targetFolder, joinPaths(file.path), file.name);
     if (!usedFolders.includes(joinPaths(file.path))) usedFolders.push(joinPaths(file.path));
     try {
-      if (!fs.existsSync(path.parse(filePath).dir)) fs.mkdirSync(path.parse(filePath).dir, { recursive: true });
-    } catch (e) {
-      this.errorState = "Failed to create "+shortName+" directory: " + e != null ? e.code || e.message || e : e;
-      this.error("Failed to create "+shortName+" directory: {e}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
-      this.getConfigInProgress = false;
-      return;
-    }
-    try {
       if (fs.existsSync(filePath) && await loadMD5(filePath) == file.md5) {
         this.log("Up to date: {path}", { path: joinPaths(file.path) + path.sep + file.name });
         this.getConfigInProgress = false;
         return;
       }
       if (this.state.running) this.updatePending = true;
+      try {
+        if (!fs.existsSync(path.parse(filePath).dir)) fs.mkdirSync(path.parse(filePath).dir, { recursive: true });
+      } catch (e) {
+        this.errorState = "Failed to create "+shortName+" directory: " + e != null ? e.code || e.message || e : e;
+        this.error("Failed to create "+shortName+" directory: {e}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
+        return;
+      }
       this.log("Writing ("+file.md5+"): {path}", { path: joinPaths(file.path) + path.sep + file.name });
-      if (!lockFiles.has(path.join(joinPaths(file.path), file.name))) lockFiles.set(path.join(joinPaths(file.path), file.name), 0);
-      let lockfile = lockFiles.get(path.join(joinPaths(file.path), file.name))+1;
-      lockFiles.set(path.join(joinPaths(file.path), file.name), lockfile);
+      lockFiles.set(path.join(joinPaths(file.path), file.name), 1);
       await this.main.vega.downloadFile("configFile", type, file.name, this, file.path);
       if (await loadMD5(filePath) != file.md5) {
         await this.getConfig(type, file);
         throw "MD5 mismatch";
       }
-      lockfile = lockFiles.get(path.join(joinPaths(file.path), file.name))-1;
-      if (lockfile <= 0) lockFiles.delete(path.join(joinPaths(file.path), file.name));
-      else lockFiles.set(path.join(joinPaths(file.path), file.name), lockfile);
     } catch (e) {
       this.errorState = "Failed to write "+shortName+" file ("+file.name+"): " + e != null ? e.code || e.message || e : e;
       this.error("Failed to write "+shortName+" file ({name}): {e}\n{stack}", {name: file.name, e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
@@ -1121,8 +1181,6 @@ class Server {
     this.getPluginConfigFilesInProg = true;
     try {
       await this.getConfigs.bind(this)("pluginConfig");
-      await this.resetPluginConfigWatcher();
-      this.pluginLockfiles.clear();
     } catch (e) {
       this.errorState = "Failed to get plugin configs: " + e != null ? e.code || e.message || e : e;
       this.error("Failed to get plugin configs: {e}", { e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e });
@@ -1135,8 +1193,6 @@ class Server {
     this.getDedicatedServerConfigFilesInProg = true;
     try {
       await this.getConfigs.bind(this)("serverConfig");
-      await this.resetServerConfigWatcher();
-      this.configLockfiles.clear();
     } catch (e) {
       this.errorState = "Failed to get dedicated server configs: " + e != null ? e.code || e.message || e : e;
       this.error("Failed to get dedicated server configs: {e}", { e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e });
@@ -1149,8 +1205,6 @@ class Server {
     this.getGlobalDedicatedServerConfigFilesInProg = true;
     try {
       await this.getConfigs.bind(this)("globalServerConfig");
-      await this.resetGlobalServerConfigWatcher();
-      this.globalConfigLockfiles.clear();
     } catch (e) {
       this.errorState = "Failed to get global dedicated server configs: " + e != null ? e.code || e.message || e : e;
       this.error("Failed to get global dedicated server configs: {e}", { e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e });
@@ -1651,6 +1705,7 @@ class Server {
         clearTimeout(this.timeout);
         this.timeout == null;
         this.log("Started Successfully");
+        this.restartCount = 0;
         this.state.starting = false;
         this.state.running = true;
         this.uptime = Date.now();
@@ -1830,6 +1885,7 @@ class Server {
     if (executable == null) {
       this.errorState = "Failed to find executable";
       this.error("Failed to find executable");
+      this.socketServer.close();
       return -4;
     }
     let cwd = path.parse(executable).dir;
@@ -1844,6 +1900,7 @@ class Server {
     } catch (e) {
       this.error("Failed to start server: {e}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
       this.errorState = "Failed to start server: " + e;
+      this.socketServer.close();
       return -5;
     }
     this.state.starting = true;
@@ -1862,9 +1919,20 @@ class Server {
    * Ran when the server takes too long to start
    */
   async startTimeout () {
+    try {
+      this.process.kill();
+    } catch (e) {
+      this.error("Failed killing server process {e}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
+    }
     this.errorState = "Server startup took too long, check console";
-    this.error("{label} Startup took too long, stopping", {label: this.config.label});
-    this.stop(true, true);
+    if (this.restartCount < 3) {
+      this.restartCount++;
+      this.error("{label} Startup took too long, restarting {restartCount}", {label: this.config.label, restartCount: this.restartCount});
+      setTimeout(this.start.bind(this), 1000);
+      return;
+    }
+    this.error("{label} Startup took too long, stopped", {label: this.config.label});
+    this.restartCount = 0;
   }
 
   stop(forced) {
@@ -2496,7 +2564,8 @@ class NVLA extends EventEmitter {
       this.config.verkey = null;
       fs.writeFileSync(path.join(__dirname, "config.json"), JSON.stringify(this.config, null, 4));
     }
-    this.info("Verkey file event: {event} {filePath}", { event: event, filePath: filePath }, { color: 6 });
+    if (this.vega != null && this.vega.connected) this.vega.client.sendMessage(new mt.machineVerkeyUpdate(this.config.verkey));
+    this.log("Verkey file event: {event} {filePath}", { event: event, filePath: filePath }, { color: 6 });
   }
 
   async checkMemory () {
@@ -3130,5 +3199,7 @@ module.exports = {
   serverState: serverState,
   addresses: addresses,
   FileInfo: FileInfo,
+  FileEvent: FileEvent,
+  FileEventHandler: FileEventHandler
 };
 

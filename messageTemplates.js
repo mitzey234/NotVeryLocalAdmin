@@ -319,6 +319,17 @@ class serverConsoleLog {
     }
 }
 
+class machineVerkeyUpdate { 
+    type = "machineVerkeyUpdate";
+
+    /** @type string */
+    data;
+
+    constructor (data) {
+        this.data = data;
+    }
+}
+
 module.exports = {
     pong: pong,
     auth: auth,
@@ -329,5 +340,6 @@ module.exports = {
     machineStatus: machineStatus,
     serverConsoleLog: serverConsoleLog,
     assembliesRequest: assembliesRequest,
-    configsRequest: configsRequest
+    configsRequest: configsRequest,
+    machineVerkeyUpdate: machineVerkeyUpdate
 }

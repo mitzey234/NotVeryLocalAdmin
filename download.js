@@ -73,8 +73,6 @@ function start() {
                 if (!error) resolve(true);
             });
         });
-    }).catch(e => {
-        console.error("Soemthing went wrong with the requset:", e);
     });
 }
 

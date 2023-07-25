@@ -480,8 +480,10 @@ class updateFile extends messageType {
     /** 
      * @param {import("./socket")["Client"]["prototype"]} s */
      async execute(s) {
+        //console.log("Updaing: " + this.file.path + " - " + this.file.name + " - " + this.file.type + " - " + this.type);
         if (this.main.ServerManager.servers.has(this.id)) {
             let server = this.main.ServerManager.servers.get(this.id);
+            if (server.state.installing || server.state.configuring) return;
             try {
                 let reset;
                 let lockFiles;
@@ -499,8 +501,8 @@ class updateFile extends messageType {
                     return;
                 }
                 await server.getConfig(this.fileType, this.file);
-                await reset();
-                lockFiles.clear();
+                //await reset();
+                //lockFiles.clear();
             } catch (e) {
                 server.error("Failed to perform config file update: {e}", {e: e != null ? e.code || e.message : e, stack: e != null ? e.stack : e});
                 return;
@@ -541,9 +543,11 @@ class deleteFile extends messageType {
     /** 
      * @param {import("./socket")["Client"]["prototype"]} s */
      async execute(s) {
+        //console.log("Deleting: " + this.path + " - " + this.name + " - " + this.fileType);
         if (this.main.ServerManager.servers.has(this.id)) {
             let server = this.main.ServerManager.servers.get(this.id);
             if (server == null) return;
+            if (server.state.installing || server.state.configuring) return;
             let file = this;
             let filePath;
             let lockFiles;
@@ -572,16 +576,14 @@ class deleteFile extends messageType {
             if (!fs.existsSync(path.parse(filePath).dir)) return;
             try {
                 if (!fs.existsSync(filePath)) return;
-                if (!lockFiles.has(path.join(joinPaths(file.path), file.name))) lockFiles.set(path.join(joinPaths(file.path), file.name), 0);
-                let lockfile = lockFiles.get(path.join(joinPaths(file.path), file.name))+1;
-                lockFiles.set(path.join(joinPaths(file.path), file.name), lockfile);
+                lockFiles.set(path.join(joinPaths(file.path), file.name), 1);
                 fs.rmSync(filePath);
             } catch (e) {
                 server.error("Failed to delete global dedicated server config file: {e}", {e: e != null ? e.code || e.message : e, stack: e != null ? e.stack : e});
                 return;
             }
-            resetListener();
-            lockFiles.clear();
+            //resetListener();
+            //lockFiles.clear();
         }
     }
 }
@@ -1129,7 +1131,11 @@ class messageHandler {
             let type = this.types.get(m.type);
             if (type != null && type != undefined) {
                 let obj = new type(this, m);
-                obj.execute(...opts);
+                try {
+                    obj.execute(...opts);
+                } catch (e) {
+                    this.vega.error.bind(this.vega)("Message handler exception type: " + m.type + "\n" + e.toString(), {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
+                }
             } else {
                 this.vega.log.bind(this.vega)("Unknown message type: " + m.type);
                 //this.vega.log("Unknown message type: " + m.type);
