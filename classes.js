@@ -2400,8 +2400,11 @@ class addresses {
 
   port;
 
-  constructor (port) {
-      this.port = port;
+  /** @type NVLA */
+  main;
+
+  constructor (main) {
+      this.main = main;
       this.public = null;
       this.local = [];
   }
@@ -2409,6 +2412,7 @@ class addresses {
   async populate () {
       const nets = os.networkInterfaces();
       this.local = [];
+      this.port = this.main.config.echoServerPort;
       for (let i in nets) {
           let intf = nets[i];
           for (let x in intf) {
@@ -2426,7 +2430,8 @@ class addresses {
           this.public = this.public.data;
           return true;
       } catch (e) {
-          this.public = null;
+        console.error(e);
+          //this.public = null;
           return false;
       }
   }
@@ -2496,6 +2501,9 @@ class NVLA extends EventEmitter {
   /** @type function */
   shutdown;
 
+  /** @type addresses */
+  network;
+
   constructor() {
     super();
     this.config = new settings();
@@ -2526,7 +2534,7 @@ class NVLA extends EventEmitter {
 
     this.logger.exitOnError = false;
 
-    this.network = new addresses(this.config.echoServerPort);    
+    this.network = new addresses(this);    
 
     this.verkeyWatch = chokidar.watch(path.parse(verkeyPath).dir, {ignoreInitial: true,persistent: true});
     this.verkeyWatch.on("all", this.userSCPSLAppdateUpdate.bind(this));
@@ -2899,7 +2907,8 @@ class NVLA extends EventEmitter {
    */
   echoServerMessage (msg, rinfo) {
     try {
-      this.echoServer.send("1", rinfo.port, rinfo.address);
+      let m = msg.slice(0,4);
+      this.echoServer.send(m, rinfo.port, rinfo.address);
     } catch (e) {
       this.error("Echo server response error: {e}", { e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e });
     }
