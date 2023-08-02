@@ -242,6 +242,9 @@ class serverStateUpdate {
     /** @type number */
     tps;
 
+    /** @type string */
+    transferState;
+
     /**
      * @param {import("./classes")["Server"]["prototype"]} server
      */
@@ -258,6 +261,7 @@ class serverStateUpdate {
         this.uptime = server.uptime || null;
         this.round = server.roundStartTime || null;
         this.updatePending = server.updatePending || null;
+        this.transferState = server.main.activeTransfers.has(server.config.id) ? server.main.activeTransfers.get(server.config.id).state : null;
     }
 }
 
@@ -330,6 +334,43 @@ class machineVerkeyUpdate {
     }
 }
 
+class cancelTransfer {
+    type = "cancelTransfer";
+
+    /** @type string */
+    id;
+
+    /** @type string */
+    reason;
+
+    constructor (id, reason) {
+        this.id = id;
+        this.reason = reason;
+    }
+}
+
+class transferTargetReady {
+    type = "transferTargetReady";
+
+    /** @type string */
+    id;
+
+    constructor (id) {
+        this.id = id;
+    }
+}
+
+class sourceReady {
+    type = "sourceReady";
+
+    /** @type string */
+    id;
+
+    constructor (id) {
+        this.id = id;
+    }
+}
+
 module.exports = {
     pong: pong,
     auth: auth,
@@ -341,5 +382,8 @@ module.exports = {
     serverConsoleLog: serverConsoleLog,
     assembliesRequest: assembliesRequest,
     configsRequest: configsRequest,
-    machineVerkeyUpdate: machineVerkeyUpdate
+    machineVerkeyUpdate: machineVerkeyUpdate,
+    cancelTransfer: cancelTransfer,
+    transferTargetReady: transferTargetReady,
+    sourceReady: sourceReady
 }

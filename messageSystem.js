@@ -1107,6 +1107,111 @@ classes.set(editConfig.name, editConfig);
 
 
 
+class startTransfer extends messageType {
+    /** @type string */
+    id;
+
+    /** @type string */
+    direction;
+
+    /** @type Classes.ServerConfig */
+    server;
+
+    /**
+     * @param main {messageHandler}
+     * @param obj {object} */
+    constructor(main, obj) {
+        super(main, obj);
+        if (obj.id == null || obj.id == undefined) throw "type 'startTransfer' requires 'id'";
+        if (obj.direction == null || obj.direction == undefined) throw "type 'startTransfer' requires 'direction'";
+        if (obj.server == null || obj.server == undefined) throw "type 'startTransfer' requires 'server'";
+        this.id = obj.id;
+        this.direction = obj.direction;
+        this.server = obj.server;
+    }
+
+    /** 
+     * @param {import("./socket")["Client"]["prototype"]} s */
+    async execute(s) {
+        if (this.main.activeTransfers.has(this.id)) return;
+        new this.exports.serverTransfer(this.server, this.main, this.direction);
+    }
+}
+classes.set(startTransfer.name, startTransfer);
+
+class cancelTransfer extends messageType {
+    /** @type string */
+    id;
+
+    /** @type string */
+    reason;
+
+    /**
+     * @param main {messageHandler}
+     * @param obj {object} */
+    constructor(main, obj) {
+        super(main, obj);
+        if (obj.id == null || obj.id == undefined) throw "type 'cancelTransfer' requires 'id'";
+        if (obj.reason == null || obj.reason == undefined) throw "type 'cancelTransfer' requires 'reason'";
+        this.id = obj.id;
+        this.reason = obj.reason;
+    }
+
+    /** 
+     * @param {import("./socket")["Client"]["prototype"]} s */
+    async execute(s) {
+        if (!this.main.activeTransfers.has(this.id)) return;
+        this.main.activeTransfers.get(this.id).cancel(this.reason);
+    }
+}
+classes.set(cancelTransfer.name, cancelTransfer);
+
+class targetReady extends messageType {
+    /** @type string */
+    id;
+
+    /**
+     * @param main {messageHandler}
+     * @param obj {object} */
+    constructor(main, obj) {
+        super(main, obj);
+        if (obj.id == null || obj.id == undefined) throw "type 'targetReady' requires 'id'";
+        this.id = obj.id;
+    }
+
+    /**
+     * @param {import("./socket")["Client"]["prototype"]} s */
+    async execute(s) {
+        if (!this.main.activeTransfers.has(this.id)) return;
+        this.main.activeTransfers.get(this.id).targetReady();
+    }
+}
+classes.set(targetReady.name, targetReady);
+
+
+class sourceReady extends messageType {
+    /** @type string */
+    id;
+
+    /**
+     * @param main {messageHandler}
+     *  @param obj {object} */
+    constructor(main, obj) {
+        super(main, obj);
+        if (obj.id == null || obj.id == undefined) throw "type 'sourceReady' requires 'id'";
+        this.id = obj.id;
+    }
+
+    /**
+     * @param {import("./socket")["Client"]["prototype"]} s */
+    async execute(s) {
+        if (!this.main.activeTransfers.has(this.id)) return;
+        this.main.activeTransfers.get(this.id).sourceReady();
+    }
+}
+classes.set(sourceReady.name, sourceReady);
+
+
 class messageHandler {
     /** @type {import("./classes")["NVLA"]["prototype"]} */
     main;

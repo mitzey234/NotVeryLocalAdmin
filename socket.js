@@ -6,6 +6,9 @@ exports.Client = class Client extends Net.Socket {
   /** @type function */
   sendMessage;
 
+  /** @type function */
+  send;
+
   /** @type Buffer[] */
   buffer;
 

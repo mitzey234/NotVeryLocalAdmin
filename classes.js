@@ -615,6 +615,7 @@ class serverState {
   delayedRestart = false;
   delayedStop = false;
   idleMode = false;
+  transfering = false;
 }
 
 class FileEvent {
@@ -1015,7 +1016,9 @@ class Server {
       this.error("Failed to get {subType}: {e}", {subType: names, e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
       return;
     }
+    if (this.state.uninstalling) return -10;
     for (var x in files) {
+      if (this.state.uninstalling) return -10;
       /** @type {File} */
       let file = files[x];
       let filePath = path.join(targetFolder, joinPaths(file.path), file.name);
@@ -1036,6 +1039,7 @@ class Server {
         this.log("Writing ("+file.md5+"): {path}", { path: joinPaths(file.path) + path.sep + file.name });
         lockFiles.set(path.join(joinPaths(file.path), file.name), 1);
         await this.main.vega.downloadFile("configFile", type, file.name, this, file.path);
+        if (this.state.uninstalling) return -10;
         let localmd5 = await loadMD5(filePath);
         if (localmd5 != file.md5) throw "MD5 mismatch: " + localmd5;
       } catch (e) {
@@ -1043,11 +1047,13 @@ class Server {
         this.error("Failed to write "+shortName+" file ({name}): {e}\n{stack}", {name: file.name, e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
       }
     }
+    if (this.state.uninstalling) return -10;
     /** @type Array<> */
     var currentFiles = readFolder(targetFolder, null, true);
     let folders = currentFiles.filter((x) => x.isDir);
     currentFiles = currentFiles.filter((x) => !x.isDir);
     for (var i in currentFiles) {
+      if (this.state.uninstalling) return -10;
       let file = currentFiles[i];
       let safe = false;
       for (x in files) {
@@ -1076,6 +1082,7 @@ class Server {
     }
     let filtered = [];
     for (i in usedFolders) {
+      if (this.state.uninstalling) return -10;
       var p = usedFolders[i];
       while (p != "") {
         if (p.trim() != "" && !filtered.includes(p)) filtered.push(p);
@@ -1084,6 +1091,7 @@ class Server {
     }
     usedFolders = filtered;
     for (i in folders) {
+      if (this.state.uninstalling) return -10;
       try {
         if (isIgnored(targetFolder, path.join(targetFolder, joinPaths(folders[i].p) || "", folders[i].filename))) continue;
       } catch (e) {
@@ -1112,6 +1120,7 @@ class Server {
    */
   async getConfig (type, file) {
     while (this.getConfigInProgress) await new Promise((resolve) => setTimeout(resolve, 200));
+    if (this.state.uninstalling) return -10;
     this.getConfigInProgress = true;
     let targetFolder;
     let names;
@@ -1247,13 +1256,16 @@ class Server {
     /** @type Map<string, import("./classes")["FileInfo"]["prototype"]> */
     let expected = new Map();
     for (i in data) {
+      if (this.state.uninstalling) return -10;
       let assembly = data[i];
       expected.set(assembly.name, assembly);
     }
+    if (this.state.uninstalling) return -10;
     let found = [];
     if (!fs.existsSync(targetFolder)) fs.mkdirSync(targetFolder, {recursive: true});
     let files = fs.readdirSync(targetFolder);
     for (let i in files) {
+      if (this.state.uninstalling) return -10;
       let file = files[i];
       let stats = fs.statSync(path.join(targetFolder, file));
       if (!stats.isFile()) continue;
@@ -1280,7 +1292,9 @@ class Server {
         if (expected.get(name).md5 == md5) found.push(name);
       }
     }
+    if (this.state.uninstalling) return -10;
     for (let i in data) {
+      if (this.state.uninstalling) return -10;
       let assembly = data[i];
       if (!found.includes(assembly.name)) {
         this.log("Updating: {assName}", {assName: assembly.name, subtype: type});
@@ -1340,9 +1354,11 @@ class Server {
   }
 
   async configure() {
+    while (this.state.configuring) await new Promise((resolve, reject) => setTimeout(resolve, 250));
     this.state.configuring = true;
     this.stateUpdate();
     this.log("Configuring server {label}", { label: this.config.label });
+    if (this.state.uninstalling) return -10;
     try {
       await this.getPluginConfigFiles();
     } catch (e) {
@@ -1350,8 +1366,9 @@ class Server {
       this.error("Failed to get plugin configs: {e}", { e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e });
       this.state.configuring = false;
       this.stateUpdate();
-      return;
+      return -1; //Failed to get plugin configs
     }
+    if (this.state.uninstalling) return -10;
     try {
       await this.getDependencies();
     } catch (e) {
@@ -1359,8 +1376,9 @@ class Server {
       this.error("Failed to get dependencies: {e}", { e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e });
       this.state.configuring = false;
       this.stateUpdate();
-      return;
+      return -2; //Failed to get dependencies
     }
+    if (this.state.uninstalling) return -10;
     try {
       await this.getPlugins();
     } catch (e) {
@@ -1368,8 +1386,9 @@ class Server {
       this.error("Failed to get plugins: {e}", { e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e });
       this.state.configuring = false;
       this.stateUpdate();
-      return;
+      return -3; //Failed to get plugins
     }
+    if (this.state.uninstalling) return -10;
     try {
       await this.getCustomAssemblies();
     } catch (e) {
@@ -1377,8 +1396,9 @@ class Server {
       this.error("Failed to get custom assemblies: {e}", { e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e });
       this.state.configuring = false;
       this.stateUpdate();
-      return;
+      return -4; //Failed to get custom assemblies
     }
+    if (this.state.uninstalling) return -10;
     try {
       await this.getDedicatedServerConfigFiles();
     } catch (e) {
@@ -1386,8 +1406,9 @@ class Server {
       this.error("Failed to get dedicated server configs: {e}", { e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e });
       this.state.configuring = false;
       this.stateUpdate();
-      return;
+      return -5; //Failed to get dedicated server configs
     }
+    if (this.state.uninstalling) return -10;
     try {
       await this.getGlobalDedicatedServerConfigFiles();
     } catch (e) {
@@ -1395,8 +1416,9 @@ class Server {
       this.error("Failed to get global dedicated server configs: {e}", { e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e });
       this.state.configuring = false;
       this.stateUpdate();
-      return;
+      return -6; //Failed to get global dedicated server configs
     }
+    if (this.state.uninstalling) return -10;
     fs.writeFileSync(path.join(this.serverInstallFolder, "hoster_policy.txt"), "gamedir_for_configs: true");
     this.state.configuring = false;
     this.stateUpdate();
@@ -1421,7 +1443,7 @@ class Server {
       if (result == -1) {
         this.state.installing = false;
         this.stateUpdate();
-        return;
+        return -2;
       }
       if (result != 0) throw "Steam exit code invalid: " + result;
       this.log("Installed SCPSL", null, {color: 3});
@@ -1431,11 +1453,12 @@ class Server {
       this.error("Failed to install server: {e}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
       this.state.installing = false;
       this.stateUpdate();
-      return;
+      return -2; // Failed to install
     }
     this.state.installing = false;
     this.stateUpdate();
-    await this.configure();
+    let result = await this.configure();
+    return result;
   }
 
   async uninstall() {
@@ -1451,7 +1474,8 @@ class Server {
       }.bind(this));
       this.stop(true);
     }
-    fs.rmSync(this.serverContainer, { recursive: true });
+    if (fs.existsSync(this.serverContainer)) fs.rmSync(this.serverContainer, { recursive: true });
+    while (this.state.configuring || this.state.installing) await new Promise(r => setTimeout(r, 200));
     this.state.uninstalling = false;
     this.stateUpdate();
   }
@@ -1596,7 +1620,7 @@ class Server {
   }
 
   async stateUpdate() {
-    this.main.emit("serverStateChange", this);
+    if (this.main.ServerManager.servers.has(this.config.id)) this.main.emit("serverStateChange", this);
     this.processFileEventQueue();
   }
 
@@ -1632,9 +1656,19 @@ class Server {
     this.playerlistTimeout = null;
     this.playerlistTimeoutCount = 0;
     if (this.timeout != null) {
-      clearTimeout(this.timeout);
-      this.timeout = null;
+        clearTimeout(this.timeout);
+        this.timeout = null;
     }
+    if (this.state.transfering && this.main.activeTransfers.has(this.config.id) && this.main.activeTransfers.get(this.config.id).direction == "source") {
+        this.log("Server Transfering", null, { color: 2 });
+        this.state.transfering = false;
+        this.main.vega.client.sendMessage(new mt.sourceReady(this.config.id));
+        this.uninstall();
+        this.main.ServerManager.servers.delete(this.config.id);
+        this.main.activeTransfers.delete(this.config.id);
+        return;
+    }
+    this.state.transfering = false;
     if (this.state.stopping) {
       this.state.stopping = false;
       this.state.restarting = false;
@@ -1664,6 +1698,11 @@ class Server {
 
   async handleError(e) {
     this.error("Error launching server: {e}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
+    if (this.startPromise.reject != null) {
+      this.startPromise.reject("Startup error: " + e.code);
+      this.startPromise.reject = null;
+      this.startPromise.resolve = null;
+    }
   }
 
   async handleStdout(data) {
@@ -1676,6 +1715,7 @@ class Server {
         else if (d[i].indexOf("A scripted object") > -1 && d[i].indexOf("has a different serialization layout when loading.") > -1) cleanup = true;
         else if (d[i].indexOf("Did you #ifdef UNITY_EDITOR a section of your serialized properties in any of your scripts?") > -1) cleanup = true;
         else if (d[i].indexOf("Action name") > -1 && d[i].indexOf("is not defined") > -1) cleanup = true;
+        else if (d[i].indexOf("ERROR: Shader") > -1 || d[i].indexOf("WARNING: Shader") > -1) cleanup = true;
         if (cleanup == true && this.config.cleanLogs) continue;
         this.verbose(d[i], { logType: "sdtout", cleanup: cleanup }, { color: 8 });
       }
@@ -1713,6 +1753,11 @@ class Server {
         this.stateUpdate();
         this.main.emit("serverReady", this);
         this.updateCycle();
+        if (this.startPromise.resolve != null) {
+          this.startPromise.resolve();
+          this.startPromise.resolve = null;
+          this.startPromise.reject = null;
+        }
       }
       this.roundStartTime = null;
     } else if (code == 21 || code == 20) {
@@ -1848,12 +1893,16 @@ class Server {
     }
   }
 
+  /** @type {{resolve: function, reject: function}} */
+  startPromise = {};
+
   async start() {
     if (this.process != null) return -1; //Server process already active
     if (this.state.starting) return -2; //Server is already starting
     if (this.state.installing) return -3; //Server is installing
     if (this.state.updating) return -4; //Server is updating
     if (this.state.configuring) return -5; //Server is configuring
+    if (this.state.uninstalling) return -10; //Server is uninstalling
     this.log("Starting server {label}", {label: this.config.label});
     this.state.starting = false;
     this.uptime = new Date().getTime();
@@ -1864,6 +1913,7 @@ class Server {
     this.playerlistCallback = null;
     this.playerlistTimeout = null;
     this.state.idleMode = false;
+    this.state.transfering = false;
     this.updatePending = false;
     this.state.delayedRestart = false;
     this.state.restarting = false;
@@ -1914,6 +1964,11 @@ class Server {
       this.timeout = null;
     }
     this.timeout = setTimeout(this.startTimeout.bind(this), 1000*this.config.maximumStartupTime);
+    let promise = new Promise(function (resolve, reject) {
+      this.startPromise.resolve = resolve;
+      this.startPromise.reject = reject;
+    }.bind(this));
+    return promise;
   }
 
   /**
@@ -1926,7 +1981,7 @@ class Server {
       this.error("Failed killing server process {e}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
     }
     this.errorState = "Server startup took too long, check console";
-    if (this.restartCount < 3) {
+    if (this.restartCount < 3 && !this.main.activeTransfers.has(this.config.id)) {
       this.restartCount++;
       this.error("{label} Startup took too long, restarting {restartCount}", {label: this.config.label, restartCount: this.restartCount});
       setTimeout(this.start.bind(this), 1000);
@@ -1934,6 +1989,11 @@ class Server {
     }
     this.error("{label} Startup took too long, stopped", {label: this.config.label});
     this.restartCount = 0;
+    if (this.startPromise.reject != null) {
+      this.startPromise.reject("Startup took too long");
+      this.startPromise.reject = null;
+      this.startPromise.resolve = null;
+    }
   }
 
   stop(forced) {
@@ -2080,6 +2140,8 @@ class steam extends EventEmitter {
   /** @type {pty.IPty} */
   activeProcess;
 
+  successOverride = false;
+
   constructor(nvla, overridePath) {
     super();
     this.main = nvla;
@@ -2131,6 +2193,10 @@ class steam extends EventEmitter {
     this.emit("log", new steamLogEvent(runId, str, isError));
     try {
       if (str.trim() == "") return;
+      if (str.indexOf("Success! App") > -1 && str.indexOf("fully installed") > -1) {
+        this.successOverride = true;
+        return;
+      }
       this.verbose(`${str}`, null, { color: 6 });
       if (str[0] == "[" && str[5] == "]") {
         var percent = str.substring(1, 5).replace("%", "");
@@ -2167,6 +2233,7 @@ class steam extends EventEmitter {
 
   async run(params) {
     this.cancel = false;
+    this.successOverride = false;
     this.verbose("Steam binary path: {path}", { path: this.binaryPath }, { color: 6 });
     this.activeProcess = pty.spawn(process.platform === "win32" ? "powershell.exe" : "bash", [], {cwd: path.parse(this.binaryPath).dir, env: process.platform == "linux" ? Object.assign({LD_LIBRARY_PATH: path.parse(this.binaryPath).dir}, process.env) : process.env});
     
@@ -2207,6 +2274,10 @@ class steam extends EventEmitter {
       if (code == 5) error = "Login Failure";
       if (code == 8) error = "Failed to install";
       this.error("Steam execution failed: {code} {error}", {code: code,error: error});
+      if (this.successOverride == true) {
+        this.log("Steam execution failed, but success override was triggered, continuing", null, { color: 3 });
+        return 0;
+      }
       return code;
     }
   }
@@ -2392,6 +2463,154 @@ class ServerManager extends EventEmitter {
 
 }
 
+
+class serverTransfer {
+  /** @type string */
+  transferId;
+
+  /** @type ServerConfig */
+  config;
+
+  /** @type Server */
+  server;
+
+  /** @type NVLA */
+  main;
+
+  /** 'target' or 'source'
+   * @type string */
+  direction;
+
+  /** @type string */
+  state;
+
+  /**
+   * Process:
+   * Target and current machine informed
+   * Target machine installs server and starts it
+   * Target machine spins down server after verifying sucessful start
+   * Target informs vega server is ready
+   * Vega informs current machine to send restart command to server
+   * When current machine server restarts, it cancels the restart and informs vega the server is stopped
+   * Vega will then tell the current machine to delete that server and tell the target machine to spin up the server, vega will also update the servers assigned machine ID
+   * When target machine gets spinup request it will register the server in its servers map and start the server
+   * @param {ServerConfig} config
+   * @param {import("./index")["init"]["prototype"]} main 
+   */
+  constructor (config, main, direction) {
+      this.main = main;
+      this.main.log("Starting transfer of server {server} {direction}", {server: config.label, direction: direction}, { color: 5 });
+      this.transferId = config.id;
+      this.config = config;
+      this.direction = direction;
+      if (direction == "target" && this.main.ServerManager.servers.has(config.id)) {
+        this.cancel("Server already exists");
+        return -1;
+      }
+      if (this.main.activeTransfers.has(this.transferId)) {
+        cancel("Transfer already in progress");
+        return -1;
+      }
+      if (direction == "target") this.server = new Server(main, config);
+      else this.server = main.ServerManager.servers.get(config.id);
+      if (this.server == null) {
+        this.cancel("Server not found");
+        return -1;
+      }
+      if (direction == "target") this.install();
+      else if (this.server.process != null) this.readySource();
+      else {
+        this.cancel("Source server not running");
+        return -1;
+      }
+      this.main.activeTransfers.set(this.transferId, this);
+  }
+
+  //Called by source, when source is prepared
+  async readySource () {
+    this.main.log("Waiting for target server to be ready", null, { color: 5 });
+    this.state = "Installing";
+    this.server.state.transfering = true;
+    this.server.stateUpdate();
+  }
+
+  //Called by source, when target is ready
+  async targetReady () {
+    this.main.log("Target server is ready", null, { color: 5 });
+    this.state = "Waiting";
+    this.server.restart();
+  }
+
+  //Called by target, when source is ready
+  async sourceReady () {
+    this.main.log("Source server is ready", null, { color: 5 });
+    this.state = null;
+    this.main.ServerManager.servers.set(this.server.config.id, this.server);
+    this.server.start();
+    this.main.activeTransfers.delete(this.transferId);
+  }
+
+  //Called by target, when target is preparing
+  async install () {
+    this.state = "Installing";
+    let savedValue = this.server.config.autoStart;
+    this.server.config.autoStart = false;
+    let result;
+    try {
+      result = await this.server.install();
+    } catch (e) {
+      this.cancel(e.message);
+      return;
+    }
+    if (result != null) {
+      this.cancel("Failed to install server");
+      return;
+    }
+    this.server.config.autoStart = savedValue;
+    if (this.state == "Cancelled") return;
+    let result2;
+    this.state = "Starting";
+    try {
+      result2 = await this.server.start();
+    } catch (e) {
+      this.cancel("Failed to start server");
+      return;
+    }
+    if (result != null) {
+      this.cancel("Failed to start server");
+      return;
+    }
+    if (this.state == "Cancelled") return;
+    //Server should have started at this point, wait for it to stop;
+    this.state = "Stopping";
+    this.server.stop(true);
+    while (this.server.process != null) await new Promise((resolve) => setTimeout(resolve, 250));
+    if (this.state == "Cancelled") return;
+    this.state = "Waiting";
+    this.main.log("Server {server} ready for transfer", {server: this.server.config.label}, { color: 5 });
+    //Ready
+    this.main.vega.client.sendMessage(new mt.transferTargetReady(this.transferId));
+  }
+
+  //Called by any, when transfer is cancelled locally
+  cancel(reason) {
+    if (this.state == "Cancelled") return;
+    this.main.log("Transfer cancelled: {reason}", { reason: reason }, { color: 5 });
+    this.state = "Cancelled";
+    this.main.activeTransfers.delete(this.transferId);
+    if (this.main.vega != null && this.main.vega.connected) this.main.vega.client.sendMessage(new mt.cancelTransfer(this.transferId, reason));
+    try {
+        if (this.direction == "target") {
+            this.server.cancelAction();
+            this.server.uninstall();
+        } else {
+            this.server.state.transfering = false;
+            this.server.stateUpdate();
+        }
+    } catch (e) {}
+  }
+}
+
 class addresses {
   public;
 
@@ -2503,6 +2722,9 @@ class NVLA extends EventEmitter {
 
   /** @type addresses */
   network;
+
+  /** @type Map<String,serverTransfer> */
+  activeTransfers = new Map();
 
   constructor() {
     super();
@@ -2990,7 +3212,6 @@ class FileInfo {
       this.name = fileType.name;
   }
 }
-module.exports.FileInfo = FileInfo;
 
 class downloadSettings {
   /* @type {string} */
@@ -3135,7 +3356,7 @@ class Vega {
   /** @type { import('./config.json')} */
   config;
 
-  /** @type { import('./socket.js')["Client"]} */
+  /** @type { import('./socket.js')["Client"]["prototype"]} */
   client;
 
   /** @type {Map<string, {resolve: function, reject: function}>} */
@@ -3321,6 +3542,9 @@ class Vega {
       v.kill();
       this.downloadRequests.delete(k);
     });
+    this.main.activeTransfers.forEach((v, k) => {
+        v.cancel("Vega Connection closed");
+    });
   }
 
   async onError(e) {
@@ -3340,6 +3564,7 @@ module.exports = {
   addresses: addresses,
   FileInfo: FileInfo,
   FileEvent: FileEvent,
-  FileEventHandler: FileEventHandler
+  FileEventHandler: FileEventHandler,
+  serverTransfer: serverTransfer,
 };
 
