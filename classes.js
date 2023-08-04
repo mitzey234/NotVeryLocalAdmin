@@ -3010,7 +3010,7 @@ class NVLA extends EventEmitter {
       this.error("Failed to start winston seq: {e}", { e: e != null ? e != null ? e.code || e.message || e : e : e, stack: e != null ? e.stack : e});
     }
     this.daemonMode = daemon;
-    this.log("Welcome to "+chalk.green("NotVeryLocalAdmin")+" v"+pack.version+" By "+chalk.cyan(pack.author)+", console is ready");
+    this.log("Welcome to "+chalk.green("NotVeryLocalAdmin")+" v"+pack.version+" By "+chalk.cyan(pack.author)+", console is ready" + (this.daemonMode ? " (Daemon Mode)" : ""));
     this.stopped = false;
     var serversPath = defaultServersPath;
     if (this.config.overrideServersPath && this.config.overrideServersPath.trim() != "") basePath = overridePath;
