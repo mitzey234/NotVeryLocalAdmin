@@ -2649,8 +2649,6 @@ class addresses {
           this.public = this.public.data;
           return true;
       } catch (e) {
-        console.error(e);
-          //this.public = null;
           return false;
       }
   }
