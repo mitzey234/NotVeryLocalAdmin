@@ -777,7 +777,7 @@ class startServer extends messageType {
             let server = this.main.ServerManager.servers.get(this.serverid);
             server.log("Web starting server");
             try {
-                server.start();
+                server.start().catch(e => {});
             } catch (e) {
                 server.error("Failed to start server: {e}", {e: e != null ? e.code || e.message : e, stack: e != null ? e.stack : e});
                 return;

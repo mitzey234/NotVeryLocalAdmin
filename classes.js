@@ -913,14 +913,17 @@ class Server {
   }
 
   async onGlobalConfigFileEvent(event, filePath) {
+    if (event == "addDir") return;
     this.fileEventHandler.registerEvent("globalServerConfig", event, filePath);
   }
 
   async onConfigFileEvent(event, filePath) {
+    if (event == "addDir") return;
     this.fileEventHandler.registerEvent("serverConfig", event, filePath);
   }
 
   async onPluginConfigFileEvent(event, filePath) {
+    if (event == "addDir") return;
     this.fileEventHandler.registerEvent("pluginConfig", event, filePath);
   }
 
@@ -982,6 +985,36 @@ class Server {
     this.log(type+" file event: {event} {filePath}", { event: event, filePath: filePath }, { color: 6 });
   }
 
+  /**
+   * @param {File} file
+   */
+  async procFile (type, file, targetFolder, lockFiles, shortName) {
+    let filePath = path.join(targetFolder, joinPaths(file.path), file.name);
+    try {
+      if (fs.existsSync(filePath) && await loadMD5(filePath) == file.md5) {
+        this.log("Up to date: {path}", { path: joinPaths(file.path) + path.sep + file.name });
+        return;
+      }
+      if (this.state.running) this.updatePending = true;
+      try {
+        if (!fs.existsSync(path.parse(filePath).dir)) fs.mkdirSync(path.parse(filePath).dir, { recursive: true });
+      } catch (e) {
+        this.errorState = "Failed to create "+shortName+" directory: " + e != null ? e.code || e.message || e : e;
+        this.error("Failed to create "+shortName+" directory: {e}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
+        return;
+      }
+      this.log("Writing ("+file.md5+"): {path}", { path: joinPaths(file.path) + path.sep + file.name });
+      lockFiles.set(path.join(joinPaths(file.path), file.name), 1);
+      await this.main.vega.downloadFile("configFile", type, file.name, this, file.path);
+      if (this.state.uninstalling) return -10;
+      let localmd5 = await loadMD5(filePath);
+      if (localmd5 != file.md5) throw "MD5 mismatch: " + localmd5;
+    } catch (e) {
+      this.errorState = "Failed to write "+shortName+" file ("+file.name+"): " + e != null ? e.code || e.message || e : e;
+      this.error("Failed to write "+shortName+" file ({name}): {e}\n{stack}", {name: file.name, e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
+    }
+  }
+
   async getConfigs (type) {
     let targetFolder;
     let names;
@@ -1016,47 +1049,31 @@ class Server {
       this.error("Failed to get {subType}: {e}", {subType: names, e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
       return;
     }
-    if (this.state.uninstalling) return -10;
-    for (var x in files) {
+    let processing = files.slice(0);
+    let concurrent = 0;
+
+    while (processing.length > 0) {
+      let file = processing.shift();
       if (this.state.uninstalling) return -10;
-      /** @type {File} */
-      let file = files[x];
-      let filePath = path.join(targetFolder, joinPaths(file.path), file.name);
+      while (concurrent >= 20) await new Promise((resolve) => setTimeout(resolve, 10));
+      concurrent++;
       if (!usedFolders.includes(joinPaths(file.path))) usedFolders.push(joinPaths(file.path));
-      try {
-        if (fs.existsSync(filePath) && await loadMD5(filePath) == file.md5) {
-          this.log("Up to date: {path}", { path: joinPaths(file.path) + path.sep + file.name });
-          continue;
-        }
-        if (this.state.running) this.updatePending = true;
-        try {
-          if (!fs.existsSync(path.parse(filePath).dir)) fs.mkdirSync(path.parse(filePath).dir, { recursive: true });
-        } catch (e) {
-          this.errorState = "Failed to create "+shortName+" directory: " + e != null ? e.code || e.message || e : e;
-          this.error("Failed to create "+shortName+" directory: {e}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
-          continue;
-        }
-        this.log("Writing ("+file.md5+"): {path}", { path: joinPaths(file.path) + path.sep + file.name });
-        lockFiles.set(path.join(joinPaths(file.path), file.name), 1);
-        await this.main.vega.downloadFile("configFile", type, file.name, this, file.path);
-        if (this.state.uninstalling) return -10;
-        let localmd5 = await loadMD5(filePath);
-        if (localmd5 != file.md5) throw "MD5 mismatch: " + localmd5;
-      } catch (e) {
+      this.procFile(type, file, targetFolder, lockFiles, shortName).catch((e) => {
         this.errorState = "Failed to write "+shortName+" file ("+file.name+"): " + e != null ? e.code || e.message || e : e;
         this.error("Failed to write "+shortName+" file ({name}): {e}\n{stack}", {name: file.name, e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
-      }
+      }).finally(() => concurrent--);
     }
+    while (concurrent > 0) await new Promise((resolve) => setTimeout(resolve, 10));
     if (this.state.uninstalling) return -10;
     /** @type Array<> */
     var currentFiles = readFolder(targetFolder, null, true);
     let folders = currentFiles.filter((x) => x.isDir);
     currentFiles = currentFiles.filter((x) => !x.isDir);
-    for (var i in currentFiles) {
+    for (let i in currentFiles) {
       if (this.state.uninstalling) return -10;
       let file = currentFiles[i];
       let safe = false;
-      for (x in files) {
+      for (let x in files) {
         let alt = files[x];
         if (path.join(joinPaths(file.p) || "./", file.filename) == path.join(joinPaths(alt.path), alt.name)) {
           safe = true;
@@ -1081,7 +1098,7 @@ class Server {
       }
     }
     let filtered = [];
-    for (i in usedFolders) {
+    for (let i in usedFolders) {
       if (this.state.uninstalling) return -10;
       var p = usedFolders[i];
       while (p != "") {
@@ -1090,7 +1107,7 @@ class Server {
       }
     }
     usedFolders = filtered;
-    for (i in folders) {
+    for (let i in folders) {
       if (this.state.uninstalling) return -10;
       try {
         if (isIgnored(targetFolder, path.join(targetFolder, joinPaths(folders[i].p) || "", folders[i].filename))) continue;
@@ -1422,7 +1439,7 @@ class Server {
     fs.writeFileSync(path.join(this.serverInstallFolder, "hoster_policy.txt"), "gamedir_for_configs: true");
     this.state.configuring = false;
     this.stateUpdate();
-    if (this.config.autoStart && this.process == null) this.start();
+    if (this.config.autoStart && this.process == null) this.start().catch(e => {});
   }
 
   steamStateUpdate () {
@@ -1523,7 +1540,12 @@ class Server {
     if (this.config.dailyRestarts && new Date().getHours() == this.config.restartTime.hour && new Date().getMinutes() == this.config.restartTime.minute) {
       let date = ((new Date().getMonth()) + "-" + (new Date().getDate()));
       if (this.lastRestart != date) {
-        let value = await this.restart();
+        let value;
+        try {
+          value = await this.restart();
+        } catch (e) {
+          value = e;
+        }
         if (value != null) {
           this.lastRestart = date;
           this.error("Failed to restart server, code:{e}", {e: value});
@@ -1680,19 +1702,30 @@ class Server {
       this.log("Server Restarting", null, { color: 2 });
       this.state.restarting = false;
       this.state.starting = false;
-      this.start();
+      this.start().catch(e => {});;
       this.stateUpdate();
       return;
     }
     if (this.state.starting) {
       this.error("Server Startup failed, Exited with {code} - {signal}", { code: code, signal: signal });
-      this.errorState = "Server exited during startup, Exited with "+ code +" - "+signal;
+      if (this.errorState == null) this.errorState = "Server exited during startup, Exited with "+ code +" - "+signal;
       this.state.starting = false;
+      if (this.restartCount < 3 && !this.main.activeTransfers.has(this.config.id)) {
+        this.restartCount++;
+        setTimeout(function () {this.start().catch(e => {});}.bind(this), 500);
+        return;
+      }
+      this.restartCount = 0;
+      if (this.startPromise.reject != null) {
+        this.startPromise.reject("Startup failure: " +  code +" - "+signal);
+        this.startPromise.reject = null;
+        this.startPromise.resolve = null;
+      }
       this.stateUpdate();
       return;
     }
     this.error("Unexpected server death, Exited with {code} - {signal}", { code: code, signal: signal });
-    this.start();
+    this.start().catch(e => {});
     this.stateUpdate();
   }
 
@@ -1975,20 +2008,13 @@ class Server {
    * Ran when the server takes too long to start
    */
   async startTimeout () {
+    this.error("{label} Startup took too long, stopped", {label: this.config.label});
     try {
       this.process.kill();
     } catch (e) {
       this.error("Failed killing server process {e}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
     }
     this.errorState = "Server startup took too long, check console";
-    if (this.restartCount < 3 && !this.main.activeTransfers.has(this.config.id)) {
-      this.restartCount++;
-      this.error("{label} Startup took too long, restarting {restartCount}", {label: this.config.label, restartCount: this.restartCount});
-      setTimeout(this.start.bind(this), 1000);
-      return;
-    }
-    this.error("{label} Startup took too long, stopped", {label: this.config.label});
-    this.restartCount = 0;
     if (this.startPromise.reject != null) {
       this.startPromise.reject("Startup took too long");
       this.startPromise.reject = null;
@@ -2538,7 +2564,7 @@ class serverTransfer {
   async targetReady () {
     this.main.log("Target server is ready", null, { color: 5 });
     this.state = "Waiting";
-    this.server.restart();
+    this.server.restart().catch(e => {});
   }
 
   //Called by target, when source is ready
@@ -2546,7 +2572,7 @@ class serverTransfer {
     this.main.log("Source server is ready", null, { color: 5 });
     this.state = null;
     this.main.ServerManager.servers.set(this.server.config.id, this.server);
-    this.server.start();
+    this.server.start().catch(e => {});
     this.main.activeTransfers.delete(this.transferId);
   }
 
@@ -2812,7 +2838,7 @@ class NVLA extends EventEmitter {
           //if SL server is contributing a significant amount of system usage
           if (s[0].used > 50/s.length) {
             this.log("Server using a majority of overall memory will be restarted complying to silent restart restrictions to compensate", null, {color: 6});
-            this.ServerManager.servers.get(s[0].uid).restart();
+            this.ServerManager.servers.get(s[0].uid).restart().catch(e => {});
           } else {
             this.log("Server memory usage appears normal, please ensure your system has enough memory to support this load, tread carefully from this point.", null, {color: 3});
           }
@@ -2995,7 +3021,7 @@ class NVLA extends EventEmitter {
           case "port":
           case "password":
           case "id":
-            if (this.vega.connected) this.vega.disconnect();
+            if (this.vega.connected) this.vega.client.destroy();
         }
         break;
       case "serversFolder":

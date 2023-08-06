@@ -74,21 +74,39 @@ async function evaluate(args) {
         if (server == null) return console.log("Server not found");
         if (server.process != null) return console.log("Server already active!");
         server.log("Server Started by console");
-        var resp = await server.start();
+        let resp;
+        try {
+            resp = await server.start();
+        } catch (e) {
+            console.log("Start failed:", e);
+            return;
+        }
         if (resp != null) return console.log("Start failed: " + resp);
     } else if (command == "restartforce" || command == "rf" || command == "fr") {
         if (args[0] == null) return console.log("Usage: restartforce <Server label|UID|Port>");
         var server = getServer(args[0]);
         if (server == null) return console.log("Server not found");
         server.log("Server Forcibly Restarted by console");
-        var resp = server.restart(true);
+        var resp;
+        try {
+            resp = await server.restart(true);
+        } catch (e) {
+            console.log("Restart failed:", e);
+            return;
+        }
         if (resp != null) return console.log("Restart failed: " + resp);
     } else if (command == "restart") {
         if (args[0] == null) return console.log("Usage: restart <Server label|UID|Port>");
         var server = getServer(args[0]);
         if (server == null) return console.log("Server not found");
         server.log("Server Restarted by console");
-        var resp = await server.restart();
+        var resp;
+        try {
+            resp = await server.restart();
+        } catch (e) {
+            console.log("Restart failed:", e);
+            return;
+        }
         if (resp != null) return console.log("Restart failed: " + resp);
     } else if (command == "exec" || command == "run") {
         if (args[0] == null && args[1] == null) return console.log("Usage: exec/run <Server label|UID|Port> <command>");
@@ -105,13 +123,13 @@ async function evaluate(args) {
         quit();
     } else if (command == "startAll" || command == "sa") {
         NVLA.log("Console started all servers");
-        NVLA.ServerManager.servers.forEach((server) => server.start());
+        NVLA.ServerManager.servers.forEach((server) => server.start().catch(e => {}));
     } else if (command == "stopAll" || command == "sta") {
         NVLA.log("Console stopped all servers");
         NVLA.ServerManager.servers.forEach((server) => server.state.stopping ? server.stop(true, true) : server.stop(true));
     } else if (command == "restartAll" || command == "ra") {
         NVLA.log("Console restarted all servers");
-        NVLA.ServerManager.servers.forEach((server) => server.restart());
+        NVLA.ServerManager.servers.forEach((server) => server.restart().catch(e => {}));
     } else if (command == "list") {
         console.log(chalk.yellow("Server List:"));
         NVLA.ServerManager.servers.forEach(function(server) {
