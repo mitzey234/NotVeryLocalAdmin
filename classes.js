@@ -1324,7 +1324,7 @@ class Server {
           continue;
         }
       } else {
-        this.log(shortName+" up to date: {name}", {name: assembly.name, subtype: type});
+        this.log(shortName+" up to date: {assName}", {assName: assembly.name, subtype: type});
       }
     }
     this.log("Installed "+names, null, {color: 6});
@@ -1710,7 +1710,7 @@ class Server {
       this.error("Server Startup failed, Exited with {code} - {signal}", { code: code, signal: signal });
       if (this.errorState == null) this.errorState = "Server exited during startup, Exited with "+ code +" - "+signal;
       this.state.starting = false;
-      if (this.restartCount < 3 && !this.main.activeTransfers.has(this.config.id)) {
+      if (this.restartCount < 3) {
         this.restartCount++;
         setTimeout(function () {this.start().catch(e => {});}.bind(this), 500);
         return;
