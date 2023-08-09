@@ -803,7 +803,7 @@ class Server {
    * @param {NVLA} main
    * @param {ServerConfig} config
    */
-  constructor(main, config) {
+  constructor(main, config, watchers = true) {
     this.main = main;
     this.logger = main.logger.child({ type: this });
     this.config = config;
@@ -821,7 +821,7 @@ class Server {
       if (!fs.existsSync(this.pluginsFolderPath)) fs.mkdirSync(this.pluginsFolderPath, { recursive: true });
       if (!fs.existsSync(this.serverConfigsFolder)) fs.mkdirSync(this.serverConfigsFolder, { recursive: true });
       if (!fs.existsSync(this.globalDedicatedServerConfigFiles)) fs.mkdirSync(this.globalDedicatedServerConfigFiles, { recursive: true });
-      this.setupWatchers();
+      if (watchers) this.setupWatchers();
     } catch (e) {
       this.errorState = "Failed to create folders: " + e;
       this.error("Failed to create folders: {e}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
@@ -2537,7 +2537,7 @@ class serverTransfer {
         cancel("Transfer already in progress");
         return -1;
       }
-      if (direction == "target") this.server = new Server(main, config);
+      if (direction == "target") this.server = new Server(main, config, false);
       else this.server = main.ServerManager.servers.get(config.id);
       if (this.server == null) {
         this.cancel("Server not found");
@@ -2573,6 +2573,7 @@ class serverTransfer {
     this.state = null;
     this.main.ServerManager.servers.set(this.server.config.id, this.server);
     this.server.start().catch(e => {});
+    this.server.setupWatchers();
     this.main.activeTransfers.delete(this.transferId);
   }
 
