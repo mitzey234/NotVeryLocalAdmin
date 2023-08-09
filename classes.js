@@ -2615,6 +2615,7 @@ class serverTransfer {
     //Server should have started at this point, wait for it to stop;
     this.state = "Stopping";
     this.server.stop(true);
+    this.server.stop(true);
     while (this.server.process != null) await new Promise((resolve) => setTimeout(resolve, 250));
     if (this.state == "Cancelled") return;
     this.state = "Waiting";
