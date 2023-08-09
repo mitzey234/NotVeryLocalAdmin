@@ -2564,7 +2564,11 @@ class serverTransfer {
   async targetReady () {
     this.main.log("Target server is ready", null, { color: 5 });
     this.state = "Waiting";
-    this.server.restart().catch(e => {});
+    try {
+        this.server.restart();
+    } catch (e) {
+        this.error("Failed restart server for transfer: {e}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
+    }
   }
 
   //Called by target, when source is ready
@@ -2839,7 +2843,11 @@ class NVLA extends EventEmitter {
           //if SL server is contributing a significant amount of system usage
           if (s[0].used > 50/s.length) {
             this.log("Server using a majority of overall memory will be restarted complying to silent restart restrictions to compensate", null, {color: 6});
-            this.ServerManager.servers.get(s[0].uid).restart().catch(e => {});
+            try {
+                this.ServerManager.servers.get(s[0].uid).restart()
+            } catch (e) {
+                this.error("Failed restart server: {e}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
+            }
           } else {
             this.log("Server memory usage appears normal, please ensure your system has enough memory to support this load, tread carefully from this point.", null, {color: 3});
           }

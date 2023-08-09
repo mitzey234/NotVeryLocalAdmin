@@ -129,7 +129,13 @@ async function evaluate(args) {
         NVLA.ServerManager.servers.forEach((server) => server.state.stopping ? server.stop(true, true) : server.stop(true));
     } else if (command == "restartAll" || command == "ra") {
         NVLA.log("Console restarted all servers");
-        NVLA.ServerManager.servers.forEach((server) => server.restart().catch(e => {}));
+        NVLA.ServerManager.servers.forEach((server) => {
+            try {
+                server.restart()
+            } catch (e) {
+                server.error("Failed restart server: {e}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
+            }
+        });
     } else if (command == "list") {
         console.log(chalk.yellow("Server List:"));
         NVLA.ServerManager.servers.forEach(function(server) {
