@@ -356,7 +356,8 @@ class winstonLogger {
       this.process.send({ type: "config", settings: this.settings });
     } else if (msg.type == "ready") {
       this.main.log("Winston Logger ready", null, {color: 2});
-      this.main.logger.add(this.transport);
+      if (this.main.logger.transports.find(this.transport) == null) this.main.logger.add(this.transport);
+      this.main.logger.remove
       clearTimeout(this.timeout);
       this.timeout = null;
       this.resolve();
@@ -367,7 +368,14 @@ class winstonLogger {
 
   onError (err) {
     this.errored = true;
-    if (this.process.killed) this.process = null;
+    if (this.process.killed) {
+      this.process = null;
+      try {
+        this.main.logger.remove(this.transport);
+      } catch (e) {
+        this.main.error("Failed removing transport");
+      }
+    }
     this.main.error("Winston Logger error: {err}", { err: err.code || err.message, stack: err.stack });
     if (this.reject != null) {
       this.reject("Winston Logger error\n", err);
@@ -381,6 +389,11 @@ class winstonLogger {
 
   onExit (code) {
     this.process = null;
+    try {
+      this.main.logger.remove(this.transport);
+    } catch (e) {
+      this.main.error("Failed removing transport");
+    }
     if (this.stopping) {
       this.stopping = false;
       this.main.error("Winston Logger exited with code {code}", { code: code });
