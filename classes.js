@@ -351,13 +351,12 @@ class winstonLogger {
     this.reject = reject;
   }
 
-  onMessasge (msg) {
+  async onMessasge (msg) {
     if (msg.type == "started") {
       this.process.send({ type: "config", settings: this.settings });
     } else if (msg.type == "ready") {
       this.main.log("Winston Logger ready", null, {color: 2});
-      if (this.main.logger.transports.find(this.transport) == null) this.main.logger.add(this.transport);
-      this.main.logger.remove
+      if (this.main.logger.transports.find(t => t == this.transport) == null) this.main.logger.add(this.transport);
       clearTimeout(this.timeout);
       this.timeout = null;
       this.resolve();
