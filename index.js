@@ -357,6 +357,7 @@ function onServerStdout (data) {
       if (d[i].indexOf("A scripted object") > -1 && d[i].indexOf("has a different serialization layout when loading.") > -1) continue;
       if (d[i].indexOf("Did you #ifdef UNITY_EDITOR a section of your serialized properties in any of your scripts?") > -1) continue;
       if (d[i].indexOf("Action name") > -1 && d[i].indexOf("is not defined") > -1) continue;
+      if (d[i].indexOf("ERROR: Shader") > -1 || d[i].indexOf("WARNING: Shader") > -1) continue;
     }
     this.logger.verbose(d[i]);
   }
