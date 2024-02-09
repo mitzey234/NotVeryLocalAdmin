@@ -1986,6 +1986,7 @@ class Server {
     }
     let cwd = path.parse(executable).dir;
     let base = path.parse(executable).base;
+    if (typeof this.config.port != "number" || this.config.port < 1 || this.config.port > 65535) return -15; //Invalid port number supplied
     try {
       this.process = spawn(
         (process.platform == "win32" ? "" : "./") + base, ["-batchmode", "-nographics", "-nodedicateddelete", "-port" + this.config.port, "-console" + this.consolePort, "-id" + process.pid, "-appdatapath",
