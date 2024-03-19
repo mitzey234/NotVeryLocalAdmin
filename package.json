@@ -1,6 +1,6 @@
 {
   "name": "NotVeryLocalAdmin",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "description": "",
   "main": "index.js",
   "scripts": {
@@ -18,8 +18,9 @@
     "bent": "^7.3.12",
     "chalk": "^4.1.2",
     "chokidar": "^3.5.3",
+    "eslint-plugin-jsdoc": "^48.2.0",
     "js-yaml": "^4.1.0",
-    "node-pty": "^0.10.1",
+    "node-pty": "^1.0.0",
     "os-utils": "^0.0.14",
     "pidusage": "^2.0.21",
     "ps-node": "^0.1.6",
@@ -28,6 +29,7 @@
     "win-version-info": "^6.0.1",
     "winston": "^3.8.2",
     "winston-daily-rotate-file": "^4.7.1",
+    "winston-loki": "^6.0.8",
     "ws": "^8.13.0"
   },
   "bin": {
@@ -35,10 +37,13 @@
   },
   "pkg": {
     "targets": [
-      "node16-linux-x64",
-      "node16-macos-x64",
-      "node16-win-x64"
+      "node18-linux-x64",
+      "node18-macos-x64",
+      "node18-win-x64"
     ],
     "outputPath": "release"
+  },
+  "devDependencies": {
+    "eslint": "^8.57.0"
   }
 }

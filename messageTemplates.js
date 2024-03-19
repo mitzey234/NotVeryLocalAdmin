@@ -1,7 +1,8 @@
 const pack = require('./package.json');
+module.exports = {};
 
-class pong {
-    /* @type {string} */
+module.exports.pong = class {
+    /** @type {string} */
     type;
 
     constructor() {
@@ -9,11 +10,11 @@ class pong {
     }
 }
 
-class assembliesRequest {
-    /* @type {string} */
+module.exports.assembliesRequest = class {
+    /** @type {string} */
     type;
 
-    /* @type {string} */
+    /** @type {string} */
     id;
 
     serverId;
@@ -22,7 +23,7 @@ class assembliesRequest {
 
     /**
      * @param {import("./classes")["NVLA"]["prototype"]["vega"]} vega
-     * @param {object} promise object
+     * @param {object} promise
      * @param {string} type
      * @param {string} serverId
      */
@@ -35,11 +36,11 @@ class assembliesRequest {
     }
 }
 
-class configsRequest {
-    /* @type {string} */
+module.exports.configsRequest = class {
+    /** @type {string} */
     type;
 
-    /* @type {string} */
+    /** @type {string} */
     id;
 
     serverId;
@@ -48,7 +49,7 @@ class configsRequest {
 
     /**
      * @param {import("./classes")["NVLA"]["prototype"]["vega"]} vega
-     * @param {object} promise object
+     * @param {object} promise
      * @param {string} type
      * @param {string} serverId
      */
@@ -61,7 +62,7 @@ class configsRequest {
     }
 }
 
-class updateFile {
+module.exports.updateFile = class {
     /** @type {Array<string>} */
     path;
 
@@ -93,7 +94,7 @@ class updateFile {
     }
 }
 
-class removeFile {
+module.exports.removeFile = class {
     /** @type {Array<string>} */
     path;
 
@@ -122,20 +123,20 @@ class removeFile {
     }
 }
 
-class auth {
-    /* @type {string} */
+module.exports.auth = class {
+    /** @type {string} */
     type;
 
-    /* @type {string} */
+    /** @type {string} */
     token;
 
-    /* @type {string} */
+    /** @type {string} */
     id;
 
-    /* @type {string} */
+    /** @type {string} */
     label;
 
-    /* @type {string} */
+    /** @type {string} */
     version;
 
     /** @type number */
@@ -167,140 +168,126 @@ class auth {
         this.label = main.config.vega.label;
         this.version = pack.version;
         this.cpu = main.cpu;
-        this.memory = main.memory;
-        this.totalMemory = main.totalMemory;
-        this.lowMemory = main.lowMemory;
-        this.uptime = Date.now() - main.uptime;
-        if (main.network != null) this.network = main.network.trim();
+        this.memory = main.memoryMonitor.memory;
+        this.totalMemory = main.memoryMonitor.totalMemory;
+        this.lowMemory = main.memoryMonitor.lowMemory;
+        this.uptime = main.uptime;
+        if (main.network != null) this.network = main.network.toObject();
     }
 }
 
-class servers {
+module.exports.servers = class {
     type = "servers";
-
-    /** @type {Object<string, object>} */
+    /** @type {{[key: string]: object}} */
     servers = {};
 
     /**
-     * 
      * @param {import("./classes")["NVLA"]["prototype"]["vega"]} vega
      */
     constructor (vega) {
         let obj = {};
-        vega.main.ServerManager.servers.forEach(function (s) {
+        vega.main.servers.forEach(function (s) {
             let o = {};
-            o.errorState = s.errorState || null;
-            o.states = s.state;
-            o.players = s.players || null;
-            o.tps = s.tps || null;
-            o.percent = s.percent || null;
-            o.steamState = s.steamState || null;
-            o.cpu = s.cpu || null;
-            o.memory = s.memory || null;
-            o.uptime = s.uptime || null;
-            o.round = s.roundStartTime || null;
+            o.state = s.state.toObject();
+            o.players = s.state.players || null;
+            o.tps = s.state.tps || null;
+            o.cpu = s.state.cpu || null;
+            o.memory = s.state.memory || null;
+            o.uptime = s.state.uptime || null;
+            o.round = s.state.roundStartTime || null;
+            o.id = s.config.id || null;
             obj[s.config.id] = o;
         });
         this.servers = obj;
     }
 }
 
-class serverStateUpdate {
+module.exports.fullServerInfo = class {
+    type = "fullServerInfo";
+
+    server;
+
+    /**
+     * @param {import("./classes")["Server"]["prototype"]} s 
+     */
+    constructor (s) {
+        let o = {};
+        o.id = s.config.id;
+        o.states = s.state.toObject();
+        o.players = s.state.players || null;
+        o.tps = s.state.tps || null;
+        o.cpu = s.state.cpu || null;
+        o.memory = s.state.memory || null;
+        o.uptime = s.state.uptime || null;
+        o.round = s.state.roundStartTime || null;
+        this.server = o;
+    }
+}
+
+module.exports.serverRemoved = class {
+    type = "serverRemoved";
+
+    server;
+
+    /**
+     * @param {import("./classes")["Server"]["prototype"]} s 
+     */
+    constructor (s) {
+        this.server = s.config.id;
+    }
+}
+
+module.exports.serverStateUpdate = class {
     type = "serverStateUpdate";
 
-    errorState;
+    server;
 
-    /** @type {import("./classes")["serverState"]["prototype"]} */
-    states;
-
-    /** @type number */
-    percent;
-
-    /** @type Array<String> */
-    players;
-
-    /** @type string */
-    serverId;
-
-    /** @type string */
-    steamState;
-
-    /** @type number */
-    cpu;
-
-    /** @type number */
-    memory;
-
-    /** @type number */
-    uptime;
-    
-    /** @type number */
-    round;
-
-    updatePending;
-
-    /** @type number */
-    tps;
-
-    /** @type string */
-    transferState;
+    /** @type {{server: {import("./classes")["Server"]["prototype"]}, key: string, value: Object}} */
+    data;
 
     /**
-     * @param {import("./classes")["Server"]["prototype"]} server
+     * @param {{server: import("./classes")["Server"]["prototype"], key: string, value: object}} data
      */
-    constructor (server) {
-        this.serverId = server.config.id;
-        this.errorState = server.errorState || null;
-        this.states = server.state;
-        this.players = server.players || null;
-        this.tps = server.tps || null;
-        this.percent = server.percent || null;
-        this.steamState = server.steamState;
-        this.cpu = server.cpu || null;
-        this.memory = server.memory || null;
-        this.uptime = server.uptime || null;
-        this.round = server.roundStartTime || null;
-        this.updatePending = server.updatePending || null;
-        this.transferState = server.main.activeTransfers.has(server.config.id) ? server.main.activeTransfers.get(server.config.id).state : null;
+    constructor (data) {
+        this.server = data.server.config.id;
+        delete data.server;
+        this.data = data;
     }
 }
 
-class machineStatus {
-    type = "machineStatus";
+module.exports.transferStateUpdate = class {
+    type = "transferStateUpdate";
 
-    /** @type number */
-    cpu;
+    server;
 
-    /** @type number */
-    memory;
-
-    /** @type boolean */
-    lowMemory;
-
-    /** @type number */
-    uptime;
-
-    /** @type number */
-    totalMemory;
-
-    /** @type import("./classes")["addresses"]["prototype"] */
-    network;
-
+    /** @type {{server: {import("./classes")["Server"]["prototype"]}, key: string, value: Object}} */
+    data;
 
     /**
-    * @param {import("./classes")["NVLA"]["prototype"]["vega"]} vega
-    */
-    constructor (vega) {
-        this.cpu = vega.main.cpu;
-        this.memory = vega.main.memory;
-        this.totalMemory = vega.main.totalMemory;
-        this.lowMemory = vega.main.lowMemory;
-        this.uptime = Date.now() - vega.main.uptime;
-        if (vega.main.network != null) this.network = vega.main.network.trim();
+     * @param {{server: import("./classes")["Server"]["prototype"], key: string, value: object}} data
+     */
+    constructor (data) {
+        this.server = data.server.config.id;
+        delete data.server;
+        this.data = data;
     }
 }
 
-class serverConsoleLog { 
+module.exports.machineStateUpdate = class {
+    type = "machineStateUpdate";
+
+    /** @type {{key: string, subKey: string, value: Object}} */
+    data;
+
+    /**
+     * @param {{key: string, subKey: string, value: object}} data
+     */
+    constructor (data) {
+        this.data = data;
+    }
+}
+
+module.exports.serverConsoleLog = class { 
     type = "serverConsoleLog";
 
     /** @type string */
@@ -323,7 +310,7 @@ class serverConsoleLog {
     }
 }
 
-class machineVerkeyUpdate { 
+module.exports.machineVerkeyUpdate = class { 
     type = "machineVerkeyUpdate";
 
     /** @type string */
@@ -334,7 +321,7 @@ class machineVerkeyUpdate {
     }
 }
 
-class cancelTransfer {
+module.exports.cancelTransfer = class {
     type = "cancelTransfer";
 
     /** @type string */
@@ -349,7 +336,7 @@ class cancelTransfer {
     }
 }
 
-class transferTargetReady {
+module.exports.transferTargetReady = class {
     type = "transferTargetReady";
 
     /** @type string */
@@ -360,7 +347,7 @@ class transferTargetReady {
     }
 }
 
-class sourceReady {
+module.exports.sourceReady = class {
     type = "sourceReady";
 
     /** @type string */
@@ -369,21 +356,4 @@ class sourceReady {
     constructor (id) {
         this.id = id;
     }
-}
-
-module.exports = {
-    pong: pong,
-    auth: auth,
-    updateFile: updateFile,
-    removeFile: removeFile,
-    servers: servers,
-    serverStateUpdate: serverStateUpdate,
-    machineStatus: machineStatus,
-    serverConsoleLog: serverConsoleLog,
-    assembliesRequest: assembliesRequest,
-    configsRequest: configsRequest,
-    machineVerkeyUpdate: machineVerkeyUpdate,
-    cancelTransfer: cancelTransfer,
-    transferTargetReady: transferTargetReady,
-    sourceReady: sourceReady
 }

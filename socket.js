@@ -1,5 +1,4 @@
 const Net = require('net');
-const EventEmitter = require('events');
 
 exports.Client = class Client extends Net.Socket {
 
@@ -85,7 +84,12 @@ function onMessageComplete () {
 function sendMessage(object) {
   if (this.readyState != 'open') return;
   if (typeof object == "object" && !Buffer.isBuffer(object)) {
-    object = JSON.stringify(object);
+    try {
+      object = JSON.stringify(object);
+    } catch (e) {
+      this.emit("error", e);
+      return;
+    }
   }
   if (typeof object == "number") object = object.toString()
   if (typeof object == "string") {

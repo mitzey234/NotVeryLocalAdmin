@@ -16,7 +16,7 @@ function onMessage (m) {
             maxBatchingTime: 50,
             level: "verbose",
             format: winston.format.printf((info) => {
-                for (i in info.replacementData) info[i] = info.replacementData[i];
+                for (let i in info.replacementData) info[i] = info.replacementData[i];
                 delete info.replacementData;
                 return info.message;
             }),

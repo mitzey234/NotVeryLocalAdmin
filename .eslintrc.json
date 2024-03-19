@@ -1,0 +1,40 @@
+{
+    "env": {
+        "browser": true,
+        "commonjs": true,
+        "es2021": true,
+        "node": true
+    },
+    "ignorePatterns": ["vegaExample/mockVegaServer.js"],
+    "extends": "eslint:recommended",
+    "parserOptions": {
+        "ecmaVersion": "latest"
+    },
+    "plugins": [
+        "jsdoc"
+    ],
+    "rules": {
+        "jsdoc/check-access": 1,
+        "jsdoc/check-property-names": 1,
+        "jsdoc/check-syntax": 1,
+        "jsdoc/check-tag-names": 1,
+        "jsdoc/check-types": 1,
+        "jsdoc/check-values": 1,
+        "jsdoc/empty-tags": 1,
+        "jsdoc/implements-on-classes": 1,
+        "jsdoc/no-bad-blocks": 1,
+        "jsdoc/no-blank-block-descriptions": 1,
+        "jsdoc/no-defaults": 1,
+        "jsdoc/no-undefined-types": 1, 
+        "jsdoc/require-asterisk-prefix": 1,
+        "jsdoc/require-hyphen-before-param-description": 1,
+        "jsdoc/require-property": 1, 
+        "jsdoc/require-property-name": 1, 
+        "jsdoc/require-property-type": 1, 
+        "jsdoc/require-returns-check": 1,
+        "jsdoc/require-yields": 1,
+        "jsdoc/require-yields-check": 1,
+        "jsdoc/sort-tags": 1,
+        "jsdoc/tag-lines": 1
+    }
+}
