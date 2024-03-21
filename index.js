@@ -218,17 +218,20 @@ function restart () {
     stdin.pause();
     exiting = true;
     console.log(chalk.yellow("Process restarting.."));
-    NVLA.stop();
+    NVLA.stop(true);
     NVLA.on("updateServerState", checkRestart);
     checkRestart();
 }
+
+var restarting = false;
 
 function checkRestart () {
     var allStopped = true;
     NVLA.servers.forEach(function (server) {
         if (server.process != null) allStopped = false;
     });
-    if (allStopped) {
+    if (allStopped && !restarting) {
+        restarting = true;
         console.log(chalk.green("All servers stopped, restarting"));
         if (NVLA.daemonMode) process.exit(6);
         var replacement = spawn(process.execPath, [__filename, "-child"], {stdio: ['ignore', "ignore", "ignore", 'ipc'], detached: true});
@@ -249,7 +252,6 @@ function checkRestart () {
         })
     }
 }
-
 
 var stdin = process.openStdin();
 stdin.addListener("data", function(d) {

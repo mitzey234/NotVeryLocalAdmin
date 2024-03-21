@@ -47,7 +47,6 @@ class messageType {
       }
 }
 
-
 objects.auth = class extends messageType {
     /** @type {boolean} */
     data;
@@ -83,7 +82,7 @@ objects.auth = class extends messageType {
             this.vega.log("Vega Connection completed", {messageType: this.constructor.name}, {color: 10});
             if (this.main.config.vega.id == null && this.id != null) {
                 this.main.config.vega.id = this.id;
-                fs.writeFileSync("./config.json", JSON.stringify(this.main.config, null, 4));
+                this.main.config.saveConfg();
             }
             this.vega.onAuthenticated();
         } else {
@@ -931,7 +930,7 @@ objects.queryRequest = class extends messageType {
      * @param {import("./socket")["Client"]["prototype"]} s */
     async execute(s) {
         if (this.requestType == "machineConfig") {
-            let data = JSON.parse(JSON.stringify(this.main.config, null));
+            let data = JSON.parse(JSON.stringify(this.main.config.simplified(), null));
             s.sendMessage({type: "queryResponse", id: this.id, data: data});
         }
     }    
@@ -975,44 +974,24 @@ objects.editConfig = class extends messageType {
     /** @type {object}*/
     data;
 
-    /** @type string */
-    property;
-
-    /** @type string */
-    subProperty;
+    /** @type Array<string> */
+    path;
 
     /**
      * @param {messageHandler} main
      * @param {object} obj */
     constructor(main, obj) {
         super(main, obj);
-        if (obj.property == null || obj.property == undefined) throw "type 'editConfig' requires 'property'";
+        if (obj.path == null || obj.path == undefined) throw "type 'editConfig' requires 'path'";
         this.data = obj.data;
-        this.property = obj.property;
-        this.subProperty = obj.subProperty;
+        this.path = obj.path;
     }
 
     /** 
      * @param {import("./socket")["Client"]["prototype"]} s */
     async execute() {
         this.log("Web changed machine config");
-        let config = this.main.config;
-        let previousValue;
-        if (this.subProperty != null && this.subProperty != undefined) {
-            if (config[this.subProperty] == null || config[this.subProperty] == undefined) config[this.subProperty] = {};
-            previousValue = config[this.subProperty][this.property];
-            config[this.subProperty][this.property] = this.data;
-        } else {
-            previousValue = config[this.property]
-            config[this.property] = this.data;
-        }
-        this.main.config = config;
-        fs.writeFileSync(path.join(__dirname, "config.json"), JSON.stringify(this.main.config, null, 4));
-        try {
-            await this.main.handleConfigEdit(this.property, this.subProperty, previousValue);
-        } catch (e) {
-            this.error("Failed to handle config edit: {e} ", {e: e != null ? e.code || e.message : e, stack: e.stack});
-        }
+        this.main.config.edit(this.path, this.data);
     }    
 }
 

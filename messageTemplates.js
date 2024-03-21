@@ -276,7 +276,7 @@ module.exports.transferStateUpdate = class {
 module.exports.machineStateUpdate = class {
     type = "machineStateUpdate";
 
-    /** @type {{key: string, subKey: string, value: Object}} */
+    /** @type {{key: string, subKey: string, value: object}} */
     data;
 
     /**

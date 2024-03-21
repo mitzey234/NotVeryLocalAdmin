@@ -117,6 +117,39 @@ function toInt32 (int) {
   return Buffer.from(arr2.join(""), "hex");
 }
 
+/**
+* @param {string | Array<string>} path 
+* @param {object} obj 
+* @param {object} value 
+*/
+function setProperty (path, obj, value) {
+  if (typeof path == "string") path = path.split(".");
+  let data = obj;
+  for (let i = 0; i < path.length; i++) {
+    if (i == path.length-1) {
+      data[path[i]] = value;
+      return;
+    }
+    if (data[path[i]] == null) data[path[i]] = {};
+    data = data[path[i]];
+  }
+  return;
+}
+
+/**
+* @param {string | Array<string>} path 
+* @param {object} obj 
+*/
+function getProperty(path, obj) {
+  if (typeof path == "string") path = path.split(".");
+  let data = obj;
+  for (let i in path) {
+      if (data == null) return data;
+      data = data[path[i]];
+  }
+  return data;
+}
+
 function convertToMask (cpus) {
   if (typeof cpus == "object" && Array.isArray(cpus)) {
       let sum = 0;
@@ -553,6 +586,9 @@ class winstonLoggerLoki {
 }
 
 class settings {
+  /** @type NVLA */
+  main;
+
   /** @type string */
   serversFolder = path.resolve(path.join(__dirname, "servers"));
 
@@ -588,7 +624,8 @@ class settings {
 
   clearLALogs = true;
 
-  constructor() {
+  constructor(main) {
+    this.main = main;
     if (!fs.existsSync(path.join(__dirname, "config.json"))) fs.writeFileSync(path.join(__dirname, "config.json"), "{}");
     /** @type {import("./config.json")} */
     let obj = JSON.parse(fs.readFileSync(path.join(__dirname, "config.json")))
@@ -620,7 +657,33 @@ class settings {
     } else {
       this.verkey = null;
     }
-    fs.writeFileSync(path.join(__dirname, "config.json"), JSON.stringify(this, null, 4));
+    this.saveConfg();
+  }
+
+  async edit (path, value) {
+    let currentValue = getProperty(path, this);
+    if (currentValue != null && (typeof currentValue == "function" || currentValue.prototype instanceof NVLA)) return; //Don't let it edit these
+    setProperty(path, this, value);
+    await this.handleEdit(path, value, currentValue);
+    this.saveConfg();
+  }
+
+  async handleEdit (path, value, previous) {
+    try {
+      await this.main.handleConfigEdit(path, value, previous);
+    } catch (e) {
+      this.main.error("Failed to handle config edit: {e} ", {e: e != null ? e.code || e.message : e, stack: e.stack});
+    }
+  }
+
+  simplified () {
+    let obj = {};
+    for (let i in this) if (typeof this[i] != "function" && i != "main") obj[i] = this[i];
+    return obj;
+  }
+
+  saveConfg () {
+    fs.writeFileSync(path.join(__dirname, "config.json"), JSON.stringify(this.simplified(), null, 4));
   }
 }
 
@@ -1667,6 +1730,7 @@ class Server {
     if (this.state.updating) return -4; //Server is updating
     if (this.state.configuring) return -5; //Server is configuring
     if (this.state.uninstalling) return -10; //Server is uninstalling
+    if (this.main.stopped) return -11; //Prevent starting when NVLA is shutting down
     await this.main.memoryMonitor.checkMemory();
     if (this.main.memoryMonitor.lowMemory) {
       this.state.error = "System memory too low";
@@ -2062,6 +2126,7 @@ class Server {
       return;
     }
     if (this.state.restarting) {
+      if (this.main.stopped) return; //Prevent starting when NVLA is shutting down
       this.log("Server Restarting", null, { color: 2 });
       this.state.restarting = false;
       this.state.starting = false;
@@ -3123,7 +3188,7 @@ class serverTransfer {
     //Server should have started at this point, wait for it to stop;
     this.state = "Stopping";
     this.server.stop(true);
-    this.server.stop(true);
+    this.server.stop(true); //kill
     while (this.server.process != null) await new Promise((resolve) => setTimeout(resolve, 250));
     if (this.state == "Cancelled") return;
     this.state = "Waiting";
@@ -3558,7 +3623,7 @@ class Rebalancer {
 }
 
 class NVLA extends EventEmitter {
-  config = new settings();
+  config = new settings(this);
   logger = this.createLogger();
   steam = new steam(this);
   vega = new Vega(this);
@@ -3661,10 +3726,10 @@ class NVLA extends EventEmitter {
       }
       if (data.trim() == "") this.config.verkey = null;
       else this.config.verkey = data.trim();
-      fs.writeFileSync(path.join(__dirname, "config.json"), JSON.stringify(this.config, null, 4));
+      this.config.saveConfg();
     } else if (event == "unlink") {
       this.config.verkey = null;
-      fs.writeFileSync(path.join(__dirname, "config.json"), JSON.stringify(this.config, null, 4));
+      this.config.saveConfg();
     }
     if (this.vega != null && this.vega.connected) this.vega.client.sendMessage(new mt.machineVerkeyUpdate(this.config.verkey));
     this.log("Verkey file event: {event} {filePath}", { event: event, filePath: filePath }, { color: 6 });
@@ -3734,7 +3799,7 @@ class NVLA extends EventEmitter {
     this.updateInProgress = false;
   }
 
-  async stop() {
+  async stop(restarting) {
     if (this.stopped) return;
     this.stopped = true;
     if (this.steam.activeProcess != null) {
@@ -3747,7 +3812,8 @@ class NVLA extends EventEmitter {
     clearInterval(this.memoryMonitor.interval);
     clearInterval(this.network.interval);
     this.echoServer.destroy();
-    this.servers.forEach(async (server) => server.stop(true));
+    if (restarting == true) this.servers.forEach(async (server) => server.restart(true));
+    else this.servers.forEach(async (server) => server.stop(true));
   }
 
   createRotatedLogTransport () {
@@ -3770,17 +3836,12 @@ class NVLA extends EventEmitter {
     });
   }
 
-  async handleConfigEdit (property, subProperty, previousValue) {
-    let value;
+  async handleConfigEdit (path, value, previous) {
     let config = this.config;
-    if (subProperty != null && subProperty != undefined) {
-      if (config[subProperty] == null || config[subProperty] == undefined) config[subProperty] = {};
-      value = config[subProperty][property];
-    } else {
-      value = config[property]
-    }
-    if (value == previousValue) return;
-    switch (subProperty || property) {
+    if (value == previous) return;
+    if (!Array.isArray(path) && typeof path == "string") path = path.split(".");
+    else if (!Array.isArray(path)) return; //Unknown data type was received for path
+    switch (path[0]) {
       case "echoServerAddress":
       case "echoServerPort":
         this.echoServer.rebind();
@@ -3811,8 +3872,7 @@ class NVLA extends EventEmitter {
         this.balancer.rebalanceServers();
         break;
       case "seq":
-        if (property == null || property == undefined) return;
-        switch (property) {
+        switch (path[1]) {
           case "enabled":
             if (value) {
               this.seq.start();
@@ -3829,8 +3889,7 @@ class NVLA extends EventEmitter {
         }
         break;
       case "loki":
-        if (property == null || property == undefined) return;
-        switch (property) {
+        switch (path[1]) {
           case "enabled":
             if (value) {
               this.loki.start();
@@ -3845,8 +3904,7 @@ class NVLA extends EventEmitter {
         }
         break;
       case "logSettings":
-        if (property == null || property == undefined) return;
-        switch (property) {
+        switch (path[1]) {
           case "enabled":
             if (value) {
               let transport = this.createRotatedLogTransport();
@@ -3867,8 +3925,7 @@ class NVLA extends EventEmitter {
         }
         break;
       case "vega":
-        if (property == null || property == undefined) return;
-        switch (property) {
+        switch (path[1]) {
           case "host":
           case "port":
           case "password":
@@ -3877,7 +3934,7 @@ class NVLA extends EventEmitter {
         }
         break;
       case "serversFolder":
-        fs.renameSync(previousValue, value);
+        fs.renameSync(previous, value);
     }
   }
 
