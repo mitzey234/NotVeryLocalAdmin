@@ -1870,10 +1870,6 @@ class Server {
       this.buffer = null;
     }
     while (chunk.length > 0) {
-      if (chunk.length < 5) {
-        this.buffer = chunk;
-        return;
-      }
       let control = chunk.readUInt8(0);
       if (control >= 16) {
         // handle control code
@@ -1881,6 +1877,10 @@ class Server {
         this.handleServerEvent(control);
         chunk = chunk.slice(1);
         continue;
+      }
+      if (chunk.length < 5) {
+        this.buffer = chunk;
+        return;
       }
       let length = chunk.readUInt32LE(1);
       if (chunk.length < 5+length) {
