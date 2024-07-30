@@ -17,16 +17,16 @@ NVLA.shutdown = quit;
 NVLA.start(args.includes("-d"));
 
 process.on('uncaughtException', function(err) {
-    if (err.message.indexOf("ECONNRESET") > -1) {
-        console.error("This FUCKKING ERROR", err);
+    if (err.code == "ECONNRESET") {
+        console.log("This FUCKING ERROR", err);
         console.trace();
         var stack = new Error().stack;
         fs.writeFileSync('crashLog.txt', err.stack + "\n" + err.message + "\n" + stack);
         return;
     }
+    setTimeout(process.exit.bind(null, -1), 1000);
     fs.writeFileSync('crashLog.txt', err.stack + "\n" + err.message);
-    setTimeout(process.exit.bind(null, -1), 100);
-    console.error("ERROR", err);
+    console.log("ERROR", err);
 });
 
 String.prototype.toHHMMSS = function () {

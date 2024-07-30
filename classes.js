@@ -1414,7 +1414,7 @@ class ServerMonitor {
     return new Promise(function (resolve, reject) {
       this.checkCallback = resolve;
       this.checkTimeout = setTimeout(reject.bind(null, "Timeout"), 8000);
-      this.server.command("list");
+      this.server.command("list", true);
     }.bind(this));
   }
 }
@@ -2029,10 +2029,10 @@ class Server {
     this.state.uninstalling = false;
   }
 
-  command (command) {
+  command (command, nolog = false) {
     if (this.process == null || this.ioHandler.connectionToServer == null) return -1;
     command = command.trim();
-    if (this.main.vega.connected) this.main.vega.client.sendMessage(new mt.serverConsoleLog(this.config.id, "> "+command, 3));
+    if (this.main.vega.connected && !nolog) this.main.vega.client.sendMessage(new mt.serverConsoleLog(this.config.id, "> "+command, 3));
     try {
       this.ioHandler.connectionToServer.write(Buffer.concat([toInt32(command.length), Buffer.from(command)]));
     } catch (e) {
@@ -2838,10 +2838,20 @@ class steam extends EventEmitter {
     this.cancel = false;
     this.successOverride = false;
     this.verbose("Steam binary path: {path}", { path: this.binaryPath }, { color: 6 });
-    this.activeProcess = pty.spawn(process.platform === "win32" ? "powershell.exe" : "bash", [], {cwd: path.parse(this.binaryPath).dir, env: process.platform == "linux" ? Object.assign({LD_LIBRARY_PATH: path.parse(this.binaryPath).dir}, process.env) : process.env});
-    let proc = this.activeProcess;
     
-    proc.write((process.platform == "darwin" ? this.binaryPath : "./"+path.parse(this.binaryPath).base) + " " + params.join(" ") + "\r");
+    let env = process.platform == "linux" ? Object.assign(process.env, { LD_LIBRARY_PATH: process.env.LD_LIBRARY_PATH != null ? path.parse(this.binaryPath).dir + ":" + process.env.LD_LIBRARY_PATH : path.parse(this.binaryPath).dir }) : process.env;
+    let cwd = process.platform == "linux" ? path.parse(path.join(this.binaryPath, "../")).dir : path.parse(this.binaryPath).dir;
+
+    let spawnString = process.platform === "win32" ? "powershell.exe" : "bash";
+    this.verbose("Spawning: {spawnString}", { spawnString: spawnString }, { color: 6 });
+    this.activeProcess = pty.spawn(spawnString, [], {cwd: cwd, env: env});
+    let proc = this.activeProcess;
+
+    let cmd = path.relative(cwd, this.binaryPath);
+
+    this.verbose("Running: {cmd} {params}", { cmd: cmd, params: params.join(" ") }, { color: 6 });
+    
+    proc.write((process.platform == "darwin" ? this.binaryPath : "./"+cmd) + " " + params.join(" ") + "\r");
     proc.write(process.platform === "win32" ? "exit $LASTEXITCODE\r" : "exit $?\r");
 
     proc.on("data", function (data) {
@@ -2941,6 +2951,7 @@ class steam extends EventEmitter {
       this.found = true;
       this.log("Steam binary found", null, { color: 1 });
     }
+    this.log("Checking steam binary", null, { color: 3 });
     let result = await this.runWrapper(["+login anonymous", "+quit"], 0);
     if (result == 0) this.ready = true;
     return result;
@@ -3738,7 +3749,7 @@ class NVLA extends EventEmitter {
   createLogger () {
     let transports = [
       new winston.transports.Console({
-        level: this.config.logSettings.level,
+        level: this.config.level,
         format: winston.format.printf(function (info) {
           processPrintF(info);
           if (info.level == "error") info.message = chalk.red(info.message);
