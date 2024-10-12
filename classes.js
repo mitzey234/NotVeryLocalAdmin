@@ -1551,19 +1551,35 @@ class StandardIOHandler {
     }
   }
 
+  buffer
+
   handleServerMessage (chunk) {
+    if (this.buffer != null) {
+      chunk = Buffer.concat([this.buffer, chunk]);
+      this.buffer = null;
+    }
     let data = [...chunk]
-    while (data.length > 0) {
-      let code = parseInt(data.shift())
-      if (code >= 16) {
+    while (chunk.length > 0) {
+      let control = chunk.readUInt8(0);
+      if (control >= 16) {
         // handle control code
-        if (events[code.toString()] != null) this.log("Event Fired: {codename}", {codename: events[code.toString()], code: code}, {color: 6});
-        this.handleServerEvent(code);
-      } else if (code != 0) {
-        let length = (data.shift() << 24) | (data.shift() << 16) | (data.shift() << 8) | data.shift()
-        let m = data.splice(0, length)
-        let message = "";
-        for (let i = 0; i < m.length; i++) message += String.fromCharCode(m[i])
+        if (events[control.toString()] != null) this.log("Event Fired: {codename}", {codename: events[control.toString()], code: control}, {color: 6});
+        this.handleServerEvent(control);
+        chunk = chunk.slice(1);
+        continue;
+      }
+      if (chunk.length < 5) {
+        this.buffer = chunk;
+        return;
+      }
+      let length = chunk.readUInt32LE(1);
+      if (chunk.length < 5+length) {
+        this.buffer = chunk;
+        return;
+      }
+      let m = chunk.slice(5, 5+length);
+      chunk = chunk.slice(5+length);
+      for (let i = 0; i < m.length; i++) message += String.fromCharCode(m[i])
         if (message.trim() == ("New round has been started.")) this.server.state.roundStartTime = new Date().getTime();
         if (this.server.serverMonitor.checkCallback != null && message.indexOf("List of players") > -1) {
           var players = message.substring(message.indexOf("List of players")+17, message.indexOf("List of players")+17+message.substring(message.indexOf("List of players")+17).indexOf(")"));
@@ -1587,7 +1603,6 @@ class StandardIOHandler {
         if (message.indexOf("Welcome to") > -1 && message.length > 1000) message = colors[code]("Welcome to EXILED (ASCII Cleaned to save your logs)");
         this.server.main.vega.client.sendMessage(new mt.serverConsoleLog(this.server.config.id, message.replace(ansiStripRegex, "").trim(), code));
         this.log(message.trim(), { logType: "console" }, { color: code });
-      }
     }
   }
 
