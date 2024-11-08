@@ -7,6 +7,13 @@ const Package = require('./package.json');
 const Path = require('path');
 const FS = require('fs');
 const EDepotFileFlag = require('./node_modules/steam-user/enums/EDepotFileFlag.js');
+const { Client } = require('undici');
+const EventEmitter = require('events');
+const crypto = require('crypto');
+const { Writable } = require('stream');
+const { fork } = require('child_process');
+const os = require('os');
+const cpuCount = os.cpus().length;
 
 const SteamOSs = {
     darwin: "macos",
@@ -14,17 +21,27 @@ const SteamOSs = {
     win32: "windows"
 }
 
-var user = new SteamUser();
-user.on("error", console.error);
-user.logOn({anonymous: true});
-
 function len (obj) {
     return Object.keys(obj).length;
 }
 
+function fileHash (path) {
+	return new Promise((resolve, reject) => {
+		let hash = crypto.createHash('sha1');
+		let stream = FS.createReadStream(path);
+		stream.on('error', reject);
+		stream.on('data', chunk => hash.update(chunk));
+		stream.on('end', () => resolve(hash.digest('hex')));
+	});
+}
+
+function getHash (buffer) {
+	return crypto.createHash('sha1').update(buffer).digest('hex');
+}
+
 class Content extends CDN {
 	/**
-	 * @param {OptionsObject} [options={}]
+	 * @param {OptionsObject} [options]
 	 */
 	constructor(options) {
 		super();
@@ -272,73 +289,342 @@ class Content extends CDN {
 	}
 }
 
+class Downloader extends EventEmitter {
+	/** @type Content */
+	cdn;
+
+	appId;
+
+	servers = [];
+	
+	/** @type Array<Set> */
+	locks = [];
+
+	os = SteamOSs[process.platform] || "Unknown";
+
+	depots = new Map();
+
+	manifests = new Map();
+
+	files = [];
+
+	keys = new Map();
+
+	totalBytes = 0;
+
+	downloaded = 0;
+
+	workers = new Set();
+
+	constructor (cdn, appId) {
+		super();
+		this.cdn = cdn;
+		this.appId = appId;
+		this.on("process", () => console.log("Downloaded: " + this.downloaded + " / " + this.totalBytes, Math.round(this.downloaded / this.totalBytes * 10000)/100 + "%"));
+		for (let i = 0; i < cpuCount; i++) {
+			let worker = fork(Path.join(__dirname, 'decompressor.js'));
+			worker.inProgress = new Map();
+			this.workers.add(worker);
+			worker.on("message", (msg) => {
+				let work = worker.inProgress.get(msg.sha);
+				if (work != null) {
+					work(Buffer.from(msg.result.data));
+					worker.inProgress.delete(msg.sha);
+				}
+			});
+			worker.on("error", e => {
+				console.error("Worker error", e);
+				this.workers.delete(worker);
+			});
+			worker.on("exit", () => {
+				this.workers.delete(worker);
+			});
+		}
+	}
+
+	async init () {
+		try {
+			this.product = await cdn.getProductInfo([this.appId], []);
+		} catch (e) {
+			console.error("Failed getting product info", e);
+			return -1;
+		}
+
+		try {
+			this.servers = (await this.cdn.getContentServers(this.appId))?.servers;
+			this.servers.sort(function (a,b) {a.weightedload - b.weightedload}); // sort by weightedload
+			for (let i in this.servers) {
+				let server = this.servers[i];
+				server.localId = i;
+				let urlBase = (server.https_support == 'mandatory' ? 'https://' : 'http://') + server.Host;
+				server.dispatcher = new Client(urlBase);
+				this.locks[i] = new Set();
+			}
+		} catch (e) {
+			console.error("Failed getting content servers", e);
+			return -2;
+		}
+	}
+
+	get availableServer () {
+		let lowest = 100;
+		for (let i in this.locks) if (this.locks[i].size < lowest) lowest = this.locks[i].size;
+		for (let i in this.servers) {
+			let server = this.servers[i];
+			if (this.locks[i].size <= lowest && this.locks[i].size < 4) return server;
+		}
+		return null;
+	}
+
+	get availableWorker () {
+		let lowest = 100;
+		for (let worker of this.workers) if (worker.inProgress.size < lowest) lowest = worker.inProgress.size;
+		for (let worker of this.workers) if (worker.inProgress.size <= lowest && worker.inProgress.size < 4) return worker;
+		return null;
+	}
+
+	async getKey (depotId) {
+		let key = this.keys.get(depotId);
+		if (key != null) return key;
+		let request = await this.cdn.getDepotDecryptionKey(this.appId, depotId);
+		this.keys.set(depotId, request.key);
+		return request.key;
+	}
+
+	async getManifests (branch = "public", betaPassword) {
+		let depots = this.product.apps[this.appId].appinfo.depots;
+		this.depots.clear();
+		this.manifests.clear();
+		for (let depotId in depots) {
+			let depot = depots[depotId];
+			if (len(depot) == 0 || isNaN(depotId)) continue;
+			if (depot.config?.oslist != null && depot.config?.oslist.indexOf(this.os) == -1) continue;
+			if (depot.config?.osarch != null && depot.config?.osarch != process.arch.replace("x", "")) continue;
+			this.depots.set(depotId, depot);
+		}
+		console.log("Selected depots", this.depots.size);
+		for (let [depotId, depot] of this.depots) {
+			let manifestId;
+			let depotBranch;
+			if (depot.manifests == null && depot.encryptedmanifests) continue;
+			if (depot.manifests != null && depot.manifests[branch] != null) {
+				depotBranch = branch;
+				manifestId = depot.manifests[branch].gid;
+			} else if (depot.encryptedmanifests != null && depot.encryptedmanifests[branch] != null) {
+				depotBranch = branch;
+				if (betaPassword == null) {
+					console.log("Branch requires password", branch, depotId);
+					continue;
+				}
+				//use beta password here
+				let keys = await cdn.getAppBetaDecryptionKeys(appId, betaPassword);
+				//SymmetricDecryptECB against the gid using gid to buffer from hex
+				//aes - ECB - PKCS7 - 256 - 128
+				//Convert decoded buffer to UInt64 and put that into manifestId
+			} else if (depot.manifests?.public != null) {
+				manifestId = depot.manifests["public"].gid;
+				depotBranch = "public";
+			}
+			if (manifestId == null) {
+				console.log("No manifest found for", branch, depotId);
+				continue;
+			}
+			let manifest;
+			try {
+				manifest = (await cdn.getManifest(depot.depotfromapp || this.appId, depotId, manifestId, depotBranch, null)).manifest;
+			} catch (e) {
+				console.error("Failed getting manifest: " + manifestId, e);
+				continue;
+			}
+			manifest.app_id = depot.depotfromapp || this.appId;
+			this.manifests.set(manifestId, manifest);
+			console.log("Depot: " + manifest.depot_id, "Files: " + manifest.files.length, "Manifest ID: " + manifest.gid_manifest, this.manifests.size);
+		}
+		if (this.manifests.size == 0) return -1;
+	}
+
+	async getFiles () {
+		if (this.manifests.size == 0) return -1;
+		this.files = [];
+		this.totalBytes = 0;
+		for (let [id, manifest] of this.manifests) {
+			let files = manifest.files;
+			console.log(manifest.depot_id, manifest.files.length, manifest.gid_manifest);
+			for (let i in files) {
+				let file = files[i];
+				this.files.push([manifest.app_id, manifest.depot_id, file]);
+				this.totalBytes += parseInt(file.size);
+				id;
+			}
+		}
+		this.files.sort((a,b) => parseInt(b[2].size) - parseInt(a[2].size));
+		console.log("Found " + this.files.length + " Files");
+	}
+
+	async processChunk (data, depot_id, chunk) {
+		const res = Buffer.concat(data);
+		let key = await this.getKey(depot_id);
+		let worker = this.availableWorker;
+		while (worker == null) {
+			await new Promise(r => setTimeout(r, 200));	
+			worker = this.availableWorker;
+		}
+		let prom = {resolve: null, reject: null};
+		let promise = new Promise((r1, r2) => {prom.resolve = r1; prom.reject = r2});
+		worker.inProgress.set(chunk.sha, prom.resolve);
+		worker.send({res, sha: chunk.sha, key});
+		return promise;
+	}
+
+	async downloadChunk (contentServer, appID, depot_id, chunk, fd) {
+		let token = '';
+		if (contentServer.usetokenauth == 1) token = (await this.cdn.getCDNAuthToken(appID, depot_id, contentServer.vhost || contentServer.Host)).token;
+		var data = [];
+		let options = {
+			origin: contentServer.urlBase,
+			path: `/depot/${depot_id}/chunk/${chunk.sha}${token}`,
+			method: 'GET',
+			headers: {
+				'Host': contentServer.vhost || contentServer.Host,
+				'User-Agent': 'DepotDownloader/2.7.3',
+			},
+			opaque: { data }
+		};
+		await contentServer.dispatcher.stream(options, ({ statusCode, opaque: { data } }) => {
+			if (statusCode != 200) {
+				console.error("Download status error:", statusCode);
+				throw new Error("Download status error:", statusCode);
+			}
+			return new Writable({
+				write (chunk, encoding, callback) {
+					data.push(chunk)
+					callback()
+				}
+			})
+		});
+		let result = await this.processChunk(data, depot_id, chunk);
+		if (getHash(result) != chunk.sha) {
+			throw new Error('Checksum mismatch');
+		} else {
+			this.downloaded += result.length;
+			FS.writeSync(fd, result, 0, result.length, parseInt(chunk.offset));
+		}
+		this.emit("process", null);
+	}
+
+	async downloadFile (app_id, depot_id, file, targetPath, fd) {
+		let proms = [];
+		while (file.chunks.length > 0) {
+			let chunk = file.chunks.shift();
+			//console.log("Chunk (" + file.chunks.length + "): " + chunk.sha);
+			var contentServer = this.availableServer;
+			while (contentServer === null) {
+				await new Promise(r => setTimeout(r, 50));
+				contentServer = this.availableServer;
+			}
+			this.locks[contentServer.localId].add(chunk);
+			let result = this.downloadChunk(contentServer, app_id, depot_id, chunk, fd)
+			.catch(function (contentServer, chunk, e) {
+				console.error("Something went wrong downloading chunk: " + chunk.sha, e);
+				file.chunks.push(chunk);
+			}.bind(this, contentServer, chunk))
+			.finally(function (contentServer, chunk) {
+				this.locks[contentServer.localId].delete(chunk);
+			}.bind(this, contentServer, chunk));
+			proms.push(result);
+		}
+		await Promise.all(proms);
+		if (fd != null) FS.closeSync(fd);
+		let fullpath = Path.join(targetPath, file.filename.replaceAll("\\", "/"));
+		let sum = await fileHash(fullpath);
+		if (sum != file.sha_content) throw new Error('File Checksum mismatch' + file.filename + " " + sum + " != " + file.sha_content);
+		//console.log("Downloaded: " + file.filename, sum);
+		this.emit("process", null);
+	}
+
+	async download (targetPath) {
+		let proms = [];
+		let concurrent = 0;
+		var wait;
+		while (this.files.length > 0 || concurrent > 0) {
+			if (this.files.length == 0) {
+				await Promise.all(proms);
+				if (this.files.length == 0) break;
+			}
+			let file = this.files.shift();
+			let fileManifest = file[2];
+			let fullpath = Path.join(targetPath, fileManifest.filename.replaceAll("\\", "/"));
+			if (fileManifest.flags & EDepotFileFlag.Directory) {
+				if (FS.existsSync(fullpath) == false) FS.mkdirSync(fullpath, {recursive: true});    
+				continue;
+			}
+			if (concurrent >= 4 ) await new Promise((r) => wait = r);
+			//console.log("Downloading (" + this.files.length + "): " + fileManifest.filename);
+			concurrent++;
+			file[3] = targetPath;
+			let test = Path.parse(fullpath);
+			if (FS.existsSync(test.dir) == false) FS.mkdirSync(test.dir, {recursive: true});
+			if (file[4] == null) {
+				let mode;
+				if ((fileManifest.flags & EDepotFileFlag.Executable) || (fileManifest.flags & EDepotFileFlag.CustomExecutable)) {
+					mode = 0o777;
+				} else {
+					mode = 0o666;
+				}
+				if (FS.existsSync(fullpath)) {
+					try {
+						if (await fileHash(fullpath) == fileManifest.sha_content) {
+							//console.log("File already exists: " + fileManifest.filename);
+							this.downloaded += parseInt(fileManifest.size);
+							this.emit("process", null);
+							concurrent--;
+							continue;
+						}
+					} catch {/* ignore */}
+				}
+				try {
+					file[4] = FS.openSync(fullpath, 'w', mode);
+					FS.ftruncateSync(file[4], parseInt(fileManifest.size));
+				} catch (e) {
+					console.error("Something went wrong creating the file: " + fileManifest.filename, e);
+					concurrent--;
+					continue;
+				}
+			}
+			let result = this.downloadFile(...file).catch(e => {
+				console.error("Something went wrong downloading file: " + fileManifest.filename, e);
+				this.files.push(file);
+			}).finally(() => {
+				concurrent--;
+				if (wait != null) {
+					wait();
+					wait = null;
+				}
+			});
+			proms.push(result);
+		}
+		await Promise.all(proms);
+		console.log("Finished", concurrent, wait);
+		this.workers.forEach(w => w.kill()); // kill all workers
+	}
+}
+
 var cdn = new Content();
 cdn.on("error", console.error);
 cdn.on("loggedOn", async function() {
     console.log("Logged on as", cdn.steamID.getSteamID64());
-    let branch = "public";
-    let appId = 996560;
-    let betaPassword = null;
-    let targetPath = "./app/";
-    let os = SteamOSs[process.platform] || "Unknown";
-    //console.log(await cdn.getAppBetaDecryptionKeys(appId, "early-server-build"));
-    let depots = new Map();
-    let product = await cdn.getProductInfo([appId], []);
-    let source = product.apps[appId].appinfo.depots;
-    for (let depotId in source) {
-        let depot = source[depotId];
-        if (len(depot) == 0 || isNaN(depotId)) continue;
-        if (depot.config?.oslist != null && depot.config?.oslist.indexOf(os) == -1) continue;
-        if (depot.config?.osarch != null && depot.config?.osarch != process.arch.replace("x", "")) continue;
-        depots.set(depotId, depot);
-    }
-    //console.log("Selected depots", depots);
-    depots.forEach(async (depot, depotId) => {
-        let manifestId;
-        let depotBranch;
-        if (depot.manifests[branch] != null) {
-            depotBranch = branch;
-            manifestId = depot.manifests[branch].gid;
-        } else if (depot.encryptedmanifests[branch] != null) {
-            depotBranch = branch;
-            if (betaPassword == null) return console.log("Branch requires password", branch, depotId);
-            //use beta password here
-            let keys = await cdn.getAppBetaDecryptionKeys(appId, betaPassword);
-            //SymmetricDecryptECB against the gid using gid to buffer from hex
-            //aes - ECB - PKCS7 - 256 - 128
-            //Convert decoded buffer to UInt64 and use that as the gid
-        } else if (depot.manifests["public"] != null) {
-            manifestId = depot.manifests["public"].gid;
-            depotBranch = "public";
-        }
-        if (manifestId == null) {
-            console.log("No manifest found for", branch, depotId);
-            return;
-        }
-        let manifest = (await cdn.getManifest(depot.depotfromapp || appId, depotId, manifestId, depotBranch, null)).manifest;
-        let files = manifest.files;
-        console.log(manifest.depot_id, manifest.files.length, manifest.gid_manifest);
-        for (let i in files) {
-            let file = files[i];
-            let fullpath = Path.join(targetPath, file.filename.replaceAll("\\", "/"));
-            if (file.flags & EDepotFileFlag.Directory) {
-                if (FS.existsSync(fullpath) == false) FS.mkdirSync(fullpath, {recursive: true});    
-                continue;
-            }
-            let path = file.filename;
-            let size = file.size;
-            let hash = file.sha;
-            let flags = file.flags;
-            let chunks = file.chunks;
-            let chunkCount = chunks.length;
-            let test = Path.parse(fullpath);
-            if (FS.existsSync(test.dir) == false) FS.mkdirSync(test.dir, {recursive: true});
-            console.log(path, size, hash, flags, chunkCount);
-            await cdn.downloadFile(appId, depotId, file, Path.join(targetPath, file.filename.replaceAll("\\", "/")));
-        }
-        console.log("Downloaded", files.length, "files from " + depotId);
-    });
+	let downloader = new Downloader(cdn, 996560);
+	var status = null;
+	status = await downloader.init();
+	if (!isNaN(status) && status < 0) return console.log("Init failure");
+	status = await downloader.getManifests("experimental");
+	if (!isNaN(status) && status < 0) return console.log("Manifests get failure");
+	status = await downloader.getFiles();
+	if (!isNaN(status) && status < 0) return console.log("File get failure");
+	status = await downloader.download("./app/");
+	if (!isNaN(status) && status < 0) return console.log("Download failure");
 
+	return;
 });
 
 cdn.logOn({anonymous: true});
