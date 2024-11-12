@@ -933,7 +933,7 @@ objects.queryRequest = class extends messageType {
             let data = JSON.parse(JSON.stringify(this.main.config.simplified(), null));
             s.sendMessage({type: "queryResponse", id: this.id, data: data});
         }
-    }    
+    }
 }
 
 objects.stopMachine = class extends messageType {

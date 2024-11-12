@@ -11,9 +11,6 @@ old/
 
 crashLog.txt
 
-steam_old/
-
-steam/
 
 vegaExample/globalConfig/*.dll
 vegaExample/globalConfig/**

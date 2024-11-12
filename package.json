@@ -5,7 +5,7 @@
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "node steam/test.js",
     "build": "pkg ."
   },
   "author": "Mitzey",
@@ -13,26 +13,16 @@
   "dependencies": {
     "@datalust/winston-seq": "^1.0.2",
     "@doctormckay/stdlib": "=2.9.1",
-    "adm-zip": "^0.5.10",
-    "async-exit-hook": "^2.0.1",
     "axios": "^1.6.8",
-    "bent": "^7.3.12",
     "chalk": "^4.1.2",
     "chokidar": "^3.5.3",
     "eslint-plugin-jsdoc": "^48.2.0",
-    "js-yaml": "^4.1.0",
-    "node-pty": "^1.0.0",
     "os-utils": "^0.0.14",
     "pidusage": "^2.0.21",
-    "ps-node": "^0.1.6",
-    "semver": "^7.3.5",
     "steam-user": "=5.2.0",
-    "tar-fs": "^2.1.1",
-    "win-version-info": "^6.0.1",
+    "undici": "^6.20.1",
     "winston": "^3.8.2",
-    "winston-daily-rotate-file": "^4.7.1",
-    "winston-loki": "^6.0.8",
-    "ws": "^8.13.0"
+    "winston-daily-rotate-file": "^4.7.1"
   },
   "bin": {
     "NotVeryLocalAdmin": "./index.js"

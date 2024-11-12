@@ -1558,6 +1558,7 @@ class StandardIOHandler {
       chunk = Buffer.concat([this.buffer, chunk]);
       this.buffer = null;
     }
+    // eslint-disable-next-line no-unused-vars
     let data = [...chunk]
     while (chunk.length > 0) {
       let control = chunk.readUInt8(0);
@@ -1579,6 +1580,7 @@ class StandardIOHandler {
       }
       let m = chunk.slice(5, 5+length);
       chunk = chunk.slice(5+length);
+      let message = "";
       for (let i = 0; i < m.length; i++) message += String.fromCharCode(m[i])
         if (message.trim() == ("New round has been started.")) this.server.state.roundStartTime = new Date().getTime();
         if (this.server.serverMonitor.checkCallback != null && message.indexOf("List of players") > -1) {
