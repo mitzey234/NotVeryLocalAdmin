@@ -12,6 +12,7 @@ const States = {
     GettingKeys: 7,
     GettingServers: 8,
     StartingWorkers: 9,
+    Destroying: 10
 }
 
 const StateStrings = {};

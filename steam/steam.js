@@ -39,9 +39,21 @@ class Steam extends EventEmitter {
         this.emit("state", v);
     }
 
-    //TODO: downloaded getter setter
+    /** @type number | null */
+    _downloaded = null;
 
-    //TODO: total size
+    get downloaded () {
+        return this._downloaded;
+    }
+
+    set downloaded (v) {
+        if (this._downloaded === v) return;
+        this._downloaded = v;
+        this.emit("progress", {total: this.totalSize, downloaded: this._downloaded}); // Emit the progress event
+    }
+
+    /** @type number | null */
+    totalSize = null;
 
     get availableWorker () {
         for (let i in this.workers) if (this.workers[i].process != null && this.workers[i].file == null) return this.workers[i];
@@ -72,22 +84,28 @@ class Steam extends EventEmitter {
         return promise;
     }
 
+    /**
+     * @param {Worker} worker 
+     * @returns 
+     */
     onFileComplete (worker) {
-        if (this.workerHooks.length == 0) return; //No files are waiting
+        if (this.workerHooks.length == 0) return worker.reset(); //No files are waiting
         let hook = this.workerHooks.shift(); //Get the next waiting file
         hook(worker); // Resolve the hook
     }
 
     reset () {
-        if (this.state != States.Disconnected) this.state = States.Ready;
+        if (this.state != States.Disconnected && this.state != States.Destroying) this.state = States.Ready;
         this.product = null;
         this.depots = null;
         this.appId = null;
         this.keys = null;
         this.manifests = null;
         this.servers = null;
+        this.downloaded = null;
+        this.totalSize = null;
         for (let i in this.workers) this.workers[i].stop();
-        this.workers = 0;
+        this.workers = [];
     }
 
     async getDepots () {
@@ -128,18 +146,24 @@ class Steam extends EventEmitter {
 				depotBranch = branch;
 				if (betaPassword == null) throw new Error("Branch requires password: " + branch + " - " + depotId);
 				//use beta password here
-                throw new Error("Beta Passwords not implimented");
-                //TODO: Copy decryption from depotdownloader
-				//let keys = await this.cdn.getAppBetaDecryptionKeys(this.appId, betaPassword);
-				//SymmetricDecryptECB against the gid using gid to buffer from hex
-				//aes - ECB - PKCS7 - 256 - 128
-				//Convert decoded buffer to UInt64 and put that into manifestId
+                let betas;
+                try {
+                    betas = await this.cdn.getBetasFromPassword(this.appId, betaPassword);
+                } catch (e) {
+                    if (e.eresult == 2) throw new Error("Failed to validate password");
+                    else throw e;
+                }
+                if (betas.betapasswords.length == 0 || betas.betapasswords.filter(b => b.betaname == branch).length == 0) throw new Error("Invalid beta password for: " + branch + " - " + depotId);
+                let key = betas.betapasswords.filter(b => b.betaname == branch)[0].betapassword;
+                depotBranch = branch;
+                manifestId = depot.manifests.get(branch).decrypt(key).gid;
 			} else if (depot.manifests?.has("public")) {
 				manifestId = depot.manifests.get("public").gid;
 				depotBranch = "public";
 			}
 			if (manifestId == null) continue;
-			let manifest = new Manifest((await this.cdn.getManifest(depot.depotfromapp || this.appId, depotId, manifestId, depotBranch, null)).manifest)
+			let manifest = new Manifest((await this.cdn.getManifest(depot.depotfromapp || this.appId, depotId, manifestId, depotBranch, betaPassword)).manifest)
+            manifest.files.forEach(f => this.totalSize += parseInt(f.size));
 			manifest.app_id = depot.depotfromapp || this.appId;
 			manifests.set(manifestId, manifest);
 		}
@@ -169,7 +193,7 @@ class Steam extends EventEmitter {
         if (FS.existsSync(fullpath)) {
             try {
                 if (await Util.fileHash(fullpath) == file.sha_content) {
-                    //TODO: Remember to account for this data in downloaded counter
+                    this.downloaded += parseInt(file.size);
                     //console.log("File already exists: " + file.filename);
                     return true;
                 }
@@ -177,7 +201,11 @@ class Steam extends EventEmitter {
         }
 
         let worker = this.availableWorker;
-        if (worker == null) worker = await this.workerHook();
+        if (worker == null && this.workers.length > 0) worker = await this.workerHook();
+        if (worker == null && this.workers.length == 0) throw new Error("No workers available");
+        else if (worker == null) throw new Error("Worker destroyed");
+        if (worker.stopping) throw new Error("Worker is stopping");
+        worker.reset();
         worker.file = file;
         worker.appId = manifest.app_id;
         worker.depotId = manifest.depot_id;
@@ -191,6 +219,7 @@ class Steam extends EventEmitter {
     startWorker () {
         let worker = new Worker(this.config);
         worker.on("finish", this.onFileComplete.bind(this, worker)); // Handle file completion
+        worker.on("chunkComplete", chunk => this.downloaded += chunk.cb_original);
         worker.on("error", this.onError.bind(this)); // Handle worker errors
         this.workers.push(worker); // Initialize file workers
     }
@@ -237,6 +266,7 @@ class Steam extends EventEmitter {
 
         //Get manifests
         this.state = States.GettingManifests;
+        this.totalSize = 0;
         try {
             this.manifests = await this.getManifests(branch, password);
         } catch (e) {
@@ -256,12 +286,14 @@ class Steam extends EventEmitter {
         //Start downloading
         this.state = States.Downloading;
         let proms = [];
+        this.downloaded = 0;
         for (let [id, manifest] of this.manifests) manifest.files.forEach(file => proms.push(this.getFile(manifest, file, targetPath).catch((e) => {return e})));
         proms = await Promise.all(proms);
         if (proms.some(e => e != true)) {
             this.reset(); // Reset the state if there's an error
-            let e = new Error("Failed to download file:", proms);
-            e.proms = proms;
+            let e = new Error("Failed to download app");
+            e.proms = proms.filter(e => e != true);
+            if (this.state == States.Destroying) e = new Error("Download was canceled");
             throw e; //Pass the error along
         }
         this.reset();
@@ -270,6 +302,7 @@ class Steam extends EventEmitter {
     }
 
     async availableBranches (appId) {
+        if (this.cdn == null || this.state == States.Disconnected) throw new Error("Steam is not available");
         this.product = await this.cdn.getProductInfo([appId], []);
         /** @type Array<Branch> */
         let branches = [];
@@ -295,8 +328,12 @@ class Steam extends EventEmitter {
     }
 
     destroy() {
+        if (this.state == States.Destroying) return;
+        this.state = States.Destroying;
         for (let i in this.workers) this.workers[i].stop();
+        while (this.workerHooks.length > 0) this.workerHooks.shift()();
         this.cdn.logOff();
+        this.cdn = null;
     }
 }
 

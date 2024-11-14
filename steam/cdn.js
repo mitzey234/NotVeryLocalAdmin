@@ -4,6 +4,8 @@ const StdLib = require('@doctormckay/stdlib');
 const FileManager = require('file-manager');
 const Package = require('../package.json');
 const SteamUser = require('steam-user');
+const Helpers = require('steam-user/components/helpers');
+const EMsg = require('steam-user/enums/EMsg.js');
 
 class Content extends CDN {
 	constructor(options) {
@@ -248,6 +250,46 @@ class Content extends CDN {
 	 */
 	_warn(msg) {
 		process.emitWarning(msg, 'Warning', 'steam-user');
+	}
+
+	/**
+	 * @param {number} appID 
+	 * @param {string} betaPassword 
+	 * @param {Function} callback 
+	 * @returns {Promise<CMsgClientCheckAppBetaPasswordResponse>}
+	 */
+	getBetasFromPassword(appID, betaPassword, callback) {
+		if (typeof betaPassword == 'function') {
+			callback = betaPassword;
+			betaPassword = null;
+		}
+
+		return StdLib.Promises.timeoutCallbackPromise(10000, ['keys'], null, callback, (resolve, reject) => {
+			this._send(EMsg.ClientCheckAppBetaPassword, {
+				app_id: appID,
+				betapassword: betaPassword,
+			}, (body, hdr) => {
+				let err = Helpers.eresultError(hdr.proto);
+				if (err) return reject(err);
+				resolve(new CMsgClientCheckAppBetaPasswordResponse(body));
+			});
+		});
+	}
+}
+
+class CMsgClientCheckAppBetaPasswordResponse {
+	constructor(rawResponse = {}) {
+		this.eresult = rawResponse.eresult;
+		/** @type Array<BetaPassword> */
+		this.betapasswords = (rawResponse.betapasswords || []).map(bp => new BetaPassword(bp));
+	}
+}
+
+class BetaPassword {
+	constructor(rawBetaPassword = {}) {
+		this.betaname = rawBetaPassword.betaname;
+		this.betapassword = Buffer.from(rawBetaPassword.betapassword, "hex");
+		this.betadescription = rawBetaPassword.betadescription;
 	}
 }
 

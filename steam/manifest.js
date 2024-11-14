@@ -66,7 +66,7 @@ class Manifest {
     creation_time;
 
     /** @type boolean */
-    filenames_encrypted;
+    filenames_encrypted = false;
 
     /** @type string */
     cb_disk_original;

@@ -31,6 +31,8 @@ class ExtendedContentServer extends ContentServer {
 class FileDownloader extends EventEmitter {
     stopping = false;
 
+    restartCount = 0;
+
     /** @type File */
     _file;
 
@@ -39,7 +41,6 @@ class FileDownloader extends EventEmitter {
     }
 
     set file (v) {
-        if (this._file === v) return;
         this._file = v;
         if (this.process != null) this.process.send({file: v});
         else console.warn("Tried to send a message to non existing child process!");
@@ -53,7 +54,6 @@ class FileDownloader extends EventEmitter {
     }
 
     set keys (v) {
-        if (this._keys === v) return;
         this._keys = v;
         if (this.process != null) this.process.send({keys: v});
         else console.warn("Tried to send a message to non existing child process!");
@@ -67,7 +67,6 @@ class FileDownloader extends EventEmitter {
     }
 
     set appId (v) {
-        if (this._appId === v) return;
         this._appId = v;
         if (this.process != null) this.process.send({appId: v});
         else console.warn("Tried to send a message to non existing child process!");
@@ -81,7 +80,6 @@ class FileDownloader extends EventEmitter {
     }
 
     set depotId (v) {
-        if (this._depotId === v) return;
         this._depotId = v;
         if (this.process != null) this.process.send({depotId: v});
         else console.warn("Tried to send a message to non existing child process!");
@@ -95,7 +93,6 @@ class FileDownloader extends EventEmitter {
     }
 
     set servers (v) {
-        if (this._servers === v) return;
         this._servers = v;
         if (this.process != null) this.process.send({servers: v});
         else console.warn("Tried to send a message to non existing child process!");
@@ -108,7 +105,6 @@ class FileDownloader extends EventEmitter {
     }
 
     set targetPath (v) {
-        if (this._targetPath === v) return;
         this._targetPath = v;
         if (this.process != null) this.process.send({targetPath: v});
         else console.warn("Tried to send a message to non existing child process!");
@@ -132,21 +128,50 @@ class FileDownloader extends EventEmitter {
             //console.error("Failed sending file worker config:", e);
             return;
         }
-        //TODO: restart existing download
+        if (this.promise != null) {
+			if (this.keys != null && this.appId != null && this.depotId != null && this.servers != null && this.file != null && this.targetPath != null && this.restartCount <= 3) {
+				this.restartCount++;
+                this.process.send({keys: this.keys});
+                this.process.send({appId: this.appId});
+                this.process.send({depotId: this.depotId});
+                this.process.send({servers: this.servers});
+                this.process.send({file: this.file});
+                this.process.send({targetPath: this.targetPath});
+                this.process.send({start: true});
+			} else if (this.keys != null && this.appId != null && this.depotId != null && this.servers != null && this.file != null && this.targetPath != null) {
+				//console.error("File worker exited unexpectedly after multiple tries");
+				this.promise.reject(new Error("File worker exited unexpectedly after multiple tries"));
+				this.promise = null;
+                this.emit("finish", true);
+			} else {
+				//console.error("File worker exited unexpectedly and could not be recovered");
+				this.promise.reject(new Error("File worker exited unexpectedly and could not be recovered"));
+				this.promise = null;
+                this.emit("finish", true);
+			}
+		} else if (this.keys != null || this.appId != null || this.depotId != null || this.servers != null || this.file != null || this.targetPath != null) {
+			this.reset();
+		}
     }
 
     reset () {
         this.file = null;
         this.keys = null;
         this.appId = null;
-        this.depotId = null
+        this.depotId = null;
+        this.restartCount = 0;
     }
 
     stop () {
+        if (this.promise != null) {
+            this.promise.reject(new Error("Download forcibly stopped"));
+            this.promise = null; //Reset the promise
+        }
         this.reset();
         if (this.process == null) return;
         this.stopping = true;
         this.process.kill();
+        this.emit("finish", true);
     }
 
     onExit () {
@@ -169,12 +194,15 @@ class FileDownloader extends EventEmitter {
         } else if (m.type == "failure") {
             this.promise.reject(new Error(m.error));
             this.promise = null; //Reset the promise
+            this.emit("finish", true);
         } else if (m.type == "complete") {
             //console.log("Done:", this.file.filename);
             this.reset();
             this.promise.resolve(true);
             this.promise = null;
             this.emit("finish", true);
+        } else if (m.type == "chunkComplete") {
+            this.emit("chunkComplete", m.chunk);
         }
     }
 }
@@ -244,8 +272,12 @@ class IFileDownloader {
         return process.send({type: "failure", error: e.message || e.code});
     }
 
+    /**
+     * @param {Worker} worker 
+     * @returns 
+     */
     onChunkComplete (worker) {
-        if (this.workerHooks.length == 0) return; //No files are waiting
+        if (this.workerHooks.length == 0) return worker.reset(); //No files are waiting
         worker.data = Buffer.alloc(1);
         let hook = this.workerHooks.shift(); //Get the next waiting file
         hook(worker); // Resolve the hook
@@ -295,6 +327,7 @@ class IFileDownloader {
         //console.log("Start processChunk", this.workerHooks.length, chunk.sha);
         let worker = this.availableWorker;
         if (worker == null) worker = await this.workerHook();
+        worker.reset();
         //console.log("Process chunk", chunk.sha);
         return worker.hook(chunk.sha, data, this.keys);
 	}
@@ -349,6 +382,7 @@ class IFileDownloader {
             throw new Error('Checksum mismatch');
 		} else {
 			FS.writeSync(fd, result, 0, result.length, parseInt(chunk.offset));
+            process.send({type: "chunkComplete", chunk: chunk});
             //console.log("Done:", chunk.sha);
             return true;
 		}
@@ -360,7 +394,6 @@ class IFileDownloader {
         this.test.find(e => e.sha == chunk.sha).done = true; // Mark the chunk as done
         //console.log("End:", this.waits.length, this.concurrent, this.test.filter(r => !r.done).length, chunk.sha);
     }
-
 
     test = [];
 

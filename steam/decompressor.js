@@ -20,6 +20,8 @@ class Decoder extends EventEmitter {
 
 	key;
 
+	restartCount = 0;
+
 	/** @type {{resolve: Function, reject: Function}} */
     promise;
 
@@ -53,13 +55,34 @@ class Decoder extends EventEmitter {
         this.process = fork(__filename);
         this.process.on("exit", this.onExit.bind(this));
         this.process.on("message", this.onMessage.bind(this));
-        //TODO: restart existing chunk
+		if (this.promise != null) {
+			if (this.data != null && this.sha != null && this.key != null && this.restartCount <= 3) {
+				this.restartCount++;
+				let obj = {sha: this.sha, data: this.data, key: this.key};
+				this.process.send(obj);
+			} else if (this.data != null && this.sha != null && this.key != null) {
+				//console.error("Decompression worker exited unexpectedly after multiple tries");
+				this.promise.reject(new Error("Decompression worker exited unexpectedly after multiple tries"));
+				this.promise = null;
+				let sha = this.sha;
+				this.emit("finish", sha);
+			} else {
+				//console.error("Decompression worker exited unexpectedly and could not be recovered");
+				this.promise.reject(new Error("Decompression worker exited unexpectedly and could not be recovered"));
+				this.promise = null;
+				let sha = this.sha;
+				this.emit("finish", sha);
+			}
+		} else if (this.data != null || this.sha != null || this.key != null) {
+			this.reset();
+		}
     }
 
 	reset () {
 		this.sha = null;
 		this.data = null;
 		this.key = null;
+		this.restartCount = 0;
 	}
 
 	onMessage(m) {
