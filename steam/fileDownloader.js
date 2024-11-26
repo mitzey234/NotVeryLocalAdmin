@@ -409,7 +409,7 @@ class IFileDownloader {
         if (this.fd != null) FS.closeSync(this.fd);
 
         let mode;
-        if ((this.file.flags & EDepotFileFlag.Executable) || (this.file.flags & EDepotFileFlag.CustomExecutable)) mode = 0o777;
+        if ((this.file.flags & EDepotFileFlag.Executable) || (this.file.flags & EDepotFileFlag.CustomExecutable) || Util.IsExecutable(fullpath)) mode = 0o777;
         else mode = 0o666;
 
         try {

@@ -1,4 +1,5 @@
 const FS = require('fs');
+const Path = require('path');
 const crypto = require('crypto');
 
 const States = {
@@ -42,11 +43,23 @@ function getHash (buffer) {
 	return crypto.createHash('sha1').update(buffer).digest('hex');
 }
 
+const extensions = [
+    '.exe', '.bat', '.cmd', '.com', '.msi', '.jar', '.apk', '.sh', '.bin', '.run', '.elf', '.app', '.vbs', '.ps1', 
+    '.py', '.rb', '.wsf', '.cgi', '.pl', '.pyc', '.pyo', '.out', '.pkg', '.appimage', '.deb', '.rpm', 
+    '.swt', '.dat', '.xpi', '.ws', '.wsf', '.vbe', '.jse', '.scr', '.pif', '.gadget', '.jar', '.x86', '.x64', '.x32',
+    '.run', '.rpm', '.ko', '.x86_64'
+];
+
+function IsExecutable (path) {
+    return extensions.includes(Path.parse(path).ext) || Path.parse(path).ext == '';
+}
+
 module.exports = {
     SteamOSs,
     len,
     fileHash,
     getHash,
     States,
-    StateStrings
+    StateStrings,
+    IsExecutable
 };

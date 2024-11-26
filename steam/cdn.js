@@ -5,6 +5,7 @@ const FileManager = require('file-manager');
 const Package = require('../package.json');
 const SteamUser = require('steam-user');
 const Helpers = require('steam-user/components/helpers');
+const EResult = require('steam-user/enums/EResult.js');
 const EMsg = require('steam-user/enums/EMsg.js');
 
 class Content extends CDN {
@@ -268,9 +269,10 @@ class Content extends CDN {
 			this._send(EMsg.ClientCheckAppBetaPassword, {
 				app_id: appID,
 				betapassword: betaPassword,
-			}, (body, hdr) => {
-				let err = Helpers.eresultError(hdr.proto);
-				if (err) return reject(err);
+			}, (body) => {
+				if (body.eresult != EResult.OK) {
+					return reject(Helpers.eresultError(body.eresult));
+				}
 				resolve(new CMsgClientCheckAppBetaPasswordResponse(body));
 			});
 		});

@@ -156,7 +156,7 @@ class Steam extends EventEmitter {
                 if (betas.betapasswords.length == 0 || betas.betapasswords.filter(b => b.betaname == branch).length == 0) throw new Error("Invalid beta password for: " + branch + " - " + depotId);
                 let key = betas.betapasswords.filter(b => b.betaname == branch)[0].betapassword;
                 depotBranch = branch;
-                manifestId = depot.manifests.get(branch).decrypt(key).gid;
+                manifestId = depot.encryptedmanifests.get(branch).decrypt(key).gid;
 			} else if (depot.manifests?.has("public")) {
 				manifestId = depot.manifests.get("public").gid;
 				depotBranch = "public";
