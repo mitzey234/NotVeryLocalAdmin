@@ -4,7 +4,6 @@ const path = require("path");
 const axios = require("axios");
 const { spawn, fork, exec } = require("child_process");
 const EventEmitter = require("events");
-const pty = require("node-pty");
 const { Client } = require("./socket.js");
 const pack = require("./package.json");
 const crypto = require("crypto");
@@ -32,7 +31,6 @@ function getCPUPercent () {
     });
 }
 
-var defaultSteamPath = [__dirname, "steam"];
 var defaultServersPath = [__dirname, "servers"];
 var verkeyPath;
 
@@ -1602,9 +1600,9 @@ class StandardIOHandler {
         if (this.tempListOfPlayersCatcher && message.indexOf(":") > -1 && (message.indexOf("@") > -1 || message.indexOf("(no User ID)")) && message.indexOf("[") > -1 && message.indexOf("]") > -1 && (message.indexOf("steam") > -1 || message.indexOf("discord") > -1 || message.indexOf("(no User ID)") > -1)) return;
         else if (this.tempListOfPlayersCatcher) delete this.tempListOfPlayersCatcher;
         if (message.charAt(0) == "\n") message = message.substring(1,message.length);
-        if (message.indexOf("Welcome to") > -1 && message.length > 1000) message = colors[code]("Welcome to EXILED (ASCII Cleaned to save your logs)");
-        this.server.main.vega.client.sendMessage(new mt.serverConsoleLog(this.server.config.id, message.replace(ansiStripRegex, "").trim(), code));
-        this.log(message.trim(), { logType: "console" }, { color: code });
+        if (message.indexOf("Welcome to") > -1 && message.length > 1000) message = colors[control]("Welcome to EXILED (ASCII Cleaned to save your logs)");
+        this.server.main.vega.client.sendMessage(new mt.serverConsoleLog(this.server.config.id, message.replace(ansiStripRegex, "").trim(), control));
+        this.log(message.trim(), { logType: "console" }, { color: control });
     }
   }
 
@@ -1895,12 +1893,10 @@ class Server {
 
   cancelAction () {
     //requires support for canceling installs and updates
-    if (this.state.updating && this.main.steam.activeProcess != null && this.main.steam.cancel != true) {
-      this.main.steam.cancel = true;
-      //this.main.steam.activeProcess.kill(); //This is dangerous for some reason, avoid this cause it CAN crash node.js
-    } else if (this.state.installing && this.main.steam.activeProcess != null && this.main.steam.cancel != true) {
-      this.main.steam.cancel = true;
-      //this.main.steam.activeProcess.kill(); //This is dangerous for some reason, avoid this cause it CAN crash node.js
+    if (this.state.updating) {
+      //TODO: Cancel steam process
+    } else if (this.state.installing) {
+      //TODO: Cancel steam process
     }
     if (this.process == null) return -1;
     if (this.state.delayedRestart) this.command("rnr");
@@ -1913,6 +1909,7 @@ class Server {
     this.state.updating = true;
     this.log("Updating server {label}", {label: this.config.label});
     try {
+      //TODO: Use new steam modules
       let result = await this.main.steam.downloadApp("996560", path.normalize(this.config.paths.serverInstallFolder), this.config.beta, this.config.betaPassword, this.config.installArguments, this);
       this.state.percent = null;
       this.state.steam = null;
@@ -1944,6 +1941,7 @@ class Server {
     this.state.installing = true;
     this.log("Installing server {label}", {label: this.config.label});
     try {
+      //TODO: Use new steam modules
       let result = await this.main.steam.downloadApp("996560", path.normalize(this.config.paths.serverInstallFolder), this.config.beta,  this.config.betaPassword, this.config.installArguments, this);
       this.state.percent = null;
       this.state.steam = null;
@@ -2067,11 +2065,6 @@ class Server {
     } catch (e) {
       this.error("Failed to clear ServerLogs\n{e}", {e: e});
     }
-  }
-
-  steamStateUpdate () {
-    this.state.percent = this.main.steam.percentage;
-    this.state.steam = this.main.steam.state;
   }
 
   async OnUpdate () {
@@ -2703,386 +2696,6 @@ class Server {
   }
 }
 
-class steamLogEvent {
-  /** @type String */
-  runId;
-
-  /** @type String */
-  log;
-
-  /** @type Boolean */
-  isError;
-
-  constructor(runId, log, isError) {
-    this.runId = runId;
-    this.log = log;
-    this.isError = isError;
-  }
-}
-
-class steam extends EventEmitter {
-  /** @type string */
-  binaryPath;
-
-  /** @type boolean */
-  found;
-
-  /** @type boolean */
-  ready;
-
-  /** @type NVLA */
-  main;
-
-  /** @type number */
-  kbytesDownloaded;
-
-  /** @type number */
-  kbytesTotal;
-
-  /** @type number */
-  percentage;
-
-  /** @type string */
-  state;
-
-  /** @type Array<Function> */
-  queue = [];
-
-  /** @type boolean */
-  inUse;
-
-  /** @type string */
-  runId;
-
-  /** @type NVLA["logger"] */
-  logger;
-
-  cancel = false;
-
-  /** @type {pty.IPty} */
-  activeProcess;
-
-  successOverride = false;
-
-  constructor(nvla) {
-    super();
-    this.main = nvla;
-    this.logger = this.main.logger.child({ type: "steam" });
-    this.log("Checking steam", null, { color: 3 });
-    var basePath = defaultSteamPath;
-    if (Array.isArray(basePath)) basePath = joinPaths(basePath);
-    if (process.platform === "win32") {
-      this.binaryPath = path.join(basePath, "steamcmd.exe");
-    } else if (process.platform === "darwin") {
-      this.binaryPath = path.join(basePath, "steamcmd");
-    } else if (process.platform === "linux") {
-      this.binaryPath = path.join(basePath, "linux32/steamcmd");
-    } else {
-      throw "Unsupported platform";
-    }
-    if (!fs.existsSync(basePath)) fs.mkdirSync(basePath, { recursive: true });
-  }
-
-  log(arg, obj, meta) {
-    if (obj == null) obj = {};
-    obj.type = this;
-    obj.machineId = this.main.config.vega.id;
-    this.logger.info(arg, obj, meta);
-  }
-
-  error(arg, obj, meta) {
-    if (obj == null) obj = {};
-    obj.type = this;
-    obj.machineId = this.main.config.vega.id;
-    this.logger.error(arg, obj, meta);
-  }
-
-  verbose(arg, obj, meta) {
-    if (obj == null) obj = {};
-    obj.type = this;
-    obj.machineId = this.main.config.vega.id;
-    this.logger.verbose(arg, obj, meta);
-  }
-
-  /**
-   * @param {string} runId
-   * @param {string} str
-   * @param {boolean} isError
-   */
-  async onstdout(runId, str, isError) {
-    this.emit("log", new steamLogEvent(runId, str, isError));
-    try {
-      if (str.trim() == "") return;
-      if (str.indexOf("Success! App") > -1 && str.indexOf("fully installed") > -1) {
-        this.successOverride = true;
-        return;
-      }
-      this.verbose(`${str}`, null, { color: 6 });
-      if (str[0] == "[" && str[5] == "]") {
-        var percent = str.substring(1, 5).replace("%", "");
-        if (percent == "----") percent = null;
-        else percent = parseInt(percent);
-        this.percentage = percent;
-        this.state = str.substring(7, str.length);
-        this.emit("percentage", percent);
-        if (this.state.indexOf("(") > -1 && this.state.indexOf(")") > -1 && this.state.indexOf(" of ") > -1) this.state = this.state.replace(this.state.substring(this.state.indexOf("(") - 1,this.state.indexOf(")") + 1), "");
-        this.log("Got current install state: {percentage} - {state}", { percentage: this.percentage, state: this.state }, { color: 3 });
-        this.emit("state", this.state);
-        if (str.indexOf("(") > -1 && str.indexOf(")") > -1 && str.indexOf(" of ") > -1) {
-          let progress = str.substring(str.indexOf("(") + 1, str.indexOf(")"));
-          progress = progress.replace(" KB", "").replaceAll(",", "").split(" of ");
-          this.kbytesDownloaded = parseInt(progress[0]);
-          this.kbytesTotal = parseInt(progress[1]);
-          this.emit("progress", {downloaded: this.kbytesDownloaded, total: this.kbytesTotal});
-        }
-      } else if (str.startsWith(" Update state") && str.indexOf("(") > -1 && str.indexOf(")") > -1) {
-        this.state = str.substring(str.indexOf(") ") + 2, str.indexOf(","));
-        let alt = str.split(",")[1];
-        this.percentage = parseFloat(alt.substring(alt.indexOf(": ") + 2, alt.indexOf(" (")));
-        this.emit("percentage", this.percentage);
-        let progress = alt.substring(alt.indexOf("(") + 1, alt.indexOf(")"));
-        this.kbytesDownloaded = Math.floor(parseInt(progress.split(" / ")[0]) / 1000);
-        this.kbytesTotal = Math.floor(parseInt(progress.split(" / ")[1]) / 1000);
-        this.emit("progress", {downloaded: this.kbytesDownloaded, total: this.kbytesTotal});
-        this.log("Got current install state: {percentage} - {state} - {downloaded}/{total}", {percentage: this.percentage, state: this.state, downloaded: this.kbytesDownloaded, total: this.kbytesTotal}, { color: 3 });
-      }
-    } catch (e) {
-      this.error("Error in steam stdout: {e}", { e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e });
-    }
-  }
-
-  async run(params) {
-    this.cancel = false;
-    this.successOverride = false;
-    this.verbose("Steam binary path: {path}", { path: this.binaryPath }, { color: 6 });
-    
-    let env = process.platform == "linux" ? Object.assign(process.env, { LD_LIBRARY_PATH: process.env.LD_LIBRARY_PATH != null ? path.parse(this.binaryPath).dir + ":" + process.env.LD_LIBRARY_PATH : path.parse(this.binaryPath).dir }) : process.env;
-    let cwd = process.platform == "linux" ? path.parse(path.join(this.binaryPath, "../")).dir : path.parse(this.binaryPath).dir;
-
-    let spawnString = process.platform === "win32" ? "powershell.exe" : "bash";
-    this.verbose("Spawning: {spawnString}", { spawnString: spawnString }, { color: 6 });
-    this.activeProcess = pty.spawn(spawnString, [], {cwd: cwd, env: env});
-    let proc = this.activeProcess;
-
-    let cmd = path.relative(cwd, this.binaryPath);
-
-    this.verbose("Running: {cmd} {params}", { cmd: cmd, params: params.join(" ") }, { color: 6 });
-    
-    proc.write((process.platform == "darwin" ? this.binaryPath : "./"+cmd) + " " + params.join(" ") + "\r");
-    proc.write(process.platform === "win32" ? "exit $LASTEXITCODE\r" : "exit $?\r");
-
-    proc.on("data", function (data) {
-        let d = data.toString().split("\n");
-        for (var i in d) {
-          try {
-            this.onstdout(this.runId, d[i].replaceAll("\r", ""), true);
-          } catch (e) {
-            this.error("Error in steam stdout {e}", {e: e != null ? e.code || e.message || e : e,stack: e != null ? e.stack : e});
-          }
-        }
-    }.bind(this));
-
-    let code = await new Promise(
-      function (resolve) {
-        this.on("exit", resolve);
-    }.bind(proc));
-    this.activeProcess = null;
-    this.log("Steam binary finished with code: {code}", { code: code }, { color: 3 });
-    if (this.cancel) {
-      this.error("Steam execution cancelled", null, { color: 3 });
-      this.cancel = false;
-      return -1;
-    }
-    if (code == 42 || code == 7) {
-      this.log("Steam binary updated, restarting", null, { color: 3 });
-      return this.run(params); //If exit code is 42, steamcmd updated and triggered magic restart
-    } else if (code == 0) return code;
-    else {
-      let error = "";
-      if (code == 254) error = "Could not connect to steam for update";
-      if (code == 5) error = "Login Failure";
-      if (code == 8) error = "Failed to install";
-      this.error("Steam execution failed: {code} {error}", {code: code,error: error});
-      if (this.successOverride == true) {
-        this.log("Steam execution failed, but success override was triggered, continuing", null, { color: 3 });
-        return 0;
-      }
-      return code;
-    }
-  }
-
-  /**
-   * Runs a steamcmd command immedately or puts it in the queue
-   * @param {Array<string>} params
-   * @param {string} runId
-   * @param {Server} server
-   */
-  async runWrapper(params, runId, server) {
-    while (this.inUse)
-      await new Promise(
-        function (resolve) {
-          this.queue.push(resolve);
-        }.bind(this)
-      );
-    this.inUse = true;
-    this.runId = runId;
-    let result = null;
-    this.emit("starting", runId);
-    this.verbose("Running: {runId}", { runId: runId }, { color: 6 });
-    let binding;
-    if (server != null) {
-      binding = server.steamStateUpdate.bind(server);
-      this.on("state", binding);
-      this.on("percentage", binding);
-    }
-    try {
-      result = await this.run(params);
-    } catch (e) {
-      this.log("Steam execution caused exception: {e}", {e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e});
-    }
-    if (server != null) {
-      this.removeListener("state", binding);
-      this.removeListener("percentage", binding);
-      server.state.steam = null;
-      server.state.percent = null;
-    }
-    this.inUse = false;
-    this.runId = null;
-    this.emit("finished", runId);
-    if (this.queue.length > 0) this.queue.shift()();
-    return result;
-  }
-
-  async check() {
-    this.found = false;
-    this.ready = false;
-    if (!fs.existsSync(this.binaryPath)) {
-      let result = await this.downloadSteamBinary(this.binaryPath);
-      if (fs.existsSync(this.binaryPath)) {
-        this.found = true;
-        this.log("Steam binary found", null, { color: 1 });
-      } else {
-        return result;
-      }
-    } else {
-      this.found = true;
-      this.log("Steam binary found", null, { color: 1 });
-    }
-    this.log("Checking steam binary", null, { color: 3 });
-    let result = await this.runWrapper(["+login anonymous", "+quit"], 0);
-    if (result == 0) this.ready = true;
-    return result;
-  }
-
-  /**
-   * @param {string} appId 
-   * @param {string} path 
-   * @param {string} beta 
-   * @param {string} betaPassword 
-   * @param {Array<string>} customArgs 
-   * @param {Server} server 
-   */
-  async downloadApp(appId, path, beta, betaPassword, customArgs, server) {
-    let result = await this.runWrapper(
-      [
-        customArgs != null ? customArgs.join(" ") : "",
-        "+force_install_dir " + ('"' + path + '"'),
-        "+login anonymous",
-        "+app_update " + appId,
-        beta != null && beta.trim() != ""
-          ? "-beta " +
-          beta +
-          (betaPassword != null && betaPassword.trim() != ""
-            ? "-betapassword " + betaPassword
-            : "")
-          : "",
-        "validate",
-        "+quit",
-      ],
-      Math.floor(Math.random() * 10000000000), server
-    );
-    return result;
-  }
-
-  /**
-   * Downloads and extracts the steamCMD binary for your supported platform
-   */
-  async downloadSteamBinary() {
-    var basePath = path.parse(this.binaryPath).dir;
-    if (process.platform === "linux") basePath = path.join(basePath, "../");
-    this.log("Downloading steam binary", null, { color: 5 });
-    let url;
-    if (process.platform === "win32") {
-      url = "https://steamcdn-a.akamaihd.net/client/installer/steamcmd.zip";
-    } else if (process.platform === "darwin") {
-      url =
-        "https://steamcdn-a.akamaihd.net/client/installer/steamcmd_osx.tar.gz";
-    } else if (process.platform === "linux") {
-      url =
-        "https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz";
-    } else {
-      throw "Unsupported platform";
-    }
-    let buffer;
-    this.log("Requesting file: {url}", { url: url }, { color: 5 });
-    try {
-      buffer = await axios({
-        method: "get",
-        url: url,
-        responseType: "arraybuffer",
-      });
-      this.log("Downloaded compressed file", null, { color: 5 });
-    } catch (e) {
-      this.error("Failed to download steam: {e}", {
-        e: e != null ? e.code || e.message || e : e,
-        stack: e != null ? e.stack : e,
-      });
-      return -3;
-    }
-    this.log("Selecting decompression method", null, { color: 5 });
-    if (process.platform != "win32") {
-      try {
-        buffer = require("zlib").gunzipSync(buffer.data);
-      } catch (e) {
-        this.log("Failed to decompress zip: {e}", {
-          e: e != null ? e.code || e.message || e : e,
-          stack: e != null ? e.stack : e,
-        });
-        return -1;
-      }
-      let tar = require("tar-fs");
-      let writer = tar.extract(basePath);
-      try {
-        setTimeout(function () { writer.write(buffer); writer.end();}, 100);
-        await new Promise(
-          function (resolve, reject) {
-            this.on("finish", resolve);
-            this.on("error", reject);
-          }.bind(writer)
-        );
-      } catch (e) {
-        this.error("Failed extraction: {e}", { e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e });
-        return -2;
-      }
-      this.log("Extraction complete", null, { color: 5 });
-    } else {
-      buffer = buffer.data;
-      const AdmZip = require("adm-zip");
-      try {
-        this.log("Decompressing file: {path}", { path: basePath }, { color: 5 });
-        let zip = new AdmZip(buffer);
-        zip.extractAllTo(basePath, true, true);
-        this.log("Extraction complete", null, { color: 5 });
-      } catch (e) {
-        this.error("Failed extraction: {e}", { e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e });
-        return -2;
-      }
-    }
-    return 1;
-  }
-}
-module.exports.steam = steam;
-
 class serverTransfer {
   /** @type string */
   transferId;
@@ -3653,7 +3266,6 @@ class Rebalancer {
 class NVLA extends EventEmitter {
   config = new settings(this);
   logger = this.createLogger();
-  steam = new steam(this);
   vega = new Vega(this);
   seq = new winstonLoggerSeq(this, this.config.seq);
   loki = new winstonLoggerLoki(this, this.config.loki);
@@ -3728,14 +3340,6 @@ class NVLA extends EventEmitter {
     var serversPath = defaultServersPath;
     if (Array.isArray(serversPath)) serversPath = joinPaths(serversPath);
     if (!fs.existsSync(serversPath)) fs.mkdirSync(serversPath, { recursive: true });
-    if (!process.argv.includes("-skipsteam")) {
-      let check = await this.steam.check();
-      if (this.steam.found != true || (typeof check == "number" && check != 0) || !this.steam.ready) {
-        this.error("Steam check failed: {e}", { e: check });
-        process.exit();
-      }
-    }
-    this.log("Steam ready", null, { color: "blue" });
     this.vega.connect();
   }
 
@@ -3830,10 +3434,7 @@ class NVLA extends EventEmitter {
   async stop(restarting) {
     if (this.stopped) return;
     this.stopped = true;
-    if (this.steam.activeProcess != null) {
-      this.steam.queue = [];
-      this.steam.activeProcess.kill();
-    }
+    //TODO: Kill active steam installs
     this.seq.stop();
     this.loki.stop();
     clearInterval(this.updateInterval);
@@ -4441,4 +4042,4 @@ class Vega {
   }
 }
 
-module.exports = {winstonLoggerSeq, winstonLoggerLoki, settings, logSettings, seqSettings, lokiSettings, vegaSettings, ServerConfig, ServerPaths, restartTime, serverState, FileEvent, FileEventHandler, ServerMonitor, StandardIOHandler, Server, steamLogEvent, steam, serverTransfer,  addresses, NVLA, File, FileInfo, downloadSettings, fileDownload, Vega };
+module.exports = {winstonLoggerSeq, winstonLoggerLoki, settings, logSettings, seqSettings, lokiSettings, vegaSettings, ServerConfig, ServerPaths, restartTime, serverState, FileEvent, FileEventHandler, ServerMonitor, StandardIOHandler, Server, serverTransfer,  addresses, NVLA, File, FileInfo, downloadSettings, fileDownload, Vega };

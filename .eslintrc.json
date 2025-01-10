@@ -13,6 +13,14 @@
     "plugins": [
         "jsdoc"
     ],
+    "globals": {
+        "__stack": "readonly",
+        "__type": "readonly",
+        "__function": "readonly",
+        "__file": "readonly",
+        "__line": "readonly",
+        "__stringStack": "readonly"
+    },
     "rules": {
         "jsdoc/check-access": 1,
         "jsdoc/check-property-names": 1,
@@ -35,6 +43,8 @@
         "jsdoc/require-yields": 1,
         "jsdoc/require-yields-check": 1,
         "jsdoc/sort-tags": 1,
-        "jsdoc/tag-lines": 1
+        "jsdoc/tag-lines": 1,
+        "no-caller": "off", // Disable the rule that disallows `arguments.callee`
+        "no-extend-native": "off" // Disable the rule that disallows extending native objects
     }
 }

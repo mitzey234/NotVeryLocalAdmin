@@ -2,10 +2,10 @@
 <Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
   <ItemGroup>
-    <Reference Include="Assembly-CSharp-firstpass" HintPath="$(BRIGHTS_REFERENCES)\Assembly-CSharp-firstpass.dll" Private="false" />
-    <Reference Include="Assembly-CSharp-Publicized">
-      <HintPath>..\..\PluginReferences\References\Assembly-CSharp-Publicized.dll</HintPath>
+    <Reference Include="Assembly-CSharp">
+      <HintPath>..\..\..\PluginReferences\References\Assembly-CSharp-Publicized.dll</HintPath>
     </Reference>
+    <Reference Include="Assembly-CSharp-firstpass" HintPath="$(BRIGHTS_REFERENCES)\Assembly-CSharp-firstpass.dll" Private="false" />
     <Reference Include="PluginAPI-Publicized, Version=12.0.0.0, Culture=neutral, processorArchitecture=AMD64">
       <SpecificVersion>False</SpecificVersion>
       <HintPath>..\..\..\PluginReferences\References\PluginAPI-Publicized.dll</HintPath>

@@ -1,12 +1,10 @@
 const Net = require('net');
+const EventEmitter = require('events');
 
 exports.Client = class Client extends Net.Socket {
 
   /** @type function */
   sendMessage;
-
-  /** @type function */
-  send;
 
   /** @type Buffer[] */
   buffer;
@@ -25,7 +23,6 @@ exports.Client = class Client extends Net.Socket {
     this.preBuffer = null;
     this.send = sendMessage.bind(this);
     this.sendMessage = sendMessage.bind(this);
-    this.on('error', e => this.emit.bind(this,e));
     this.on('data', onData.bind(this));
   }
 }
@@ -44,7 +41,6 @@ function onData (chunk) {
     chunk = chunk.slice(8,chunk.length);
   }
   var remaining = this.messageLength - this.buffered;
-  //console.log("Data received: " + chunk.length, this.buffered + "/" + this.messageLength, remaining);
   if (chunk.length == remaining) {
     this.buffer.push(chunk);
     this.buffered += chunk.length;
@@ -84,12 +80,7 @@ function onMessageComplete () {
 function sendMessage(object) {
   if (this.readyState != 'open') return;
   if (typeof object == "object" && !Buffer.isBuffer(object)) {
-    try {
-      object = JSON.stringify(object);
-    } catch (e) {
-      this.emit("error", e);
-      return;
-    }
+    object = JSON.stringify(object);
   }
   if (typeof object == "number") object = object.toString()
   if (typeof object == "string") {

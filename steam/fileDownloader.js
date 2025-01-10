@@ -43,7 +43,6 @@ class FileDownloader extends EventEmitter {
     set file (v) {
         this._file = v;
         if (this.process != null) this.process.send({file: v});
-        else console.warn("Tried to send a message to non existing child process!");
     }
 
     /** @type Buffer */
@@ -56,7 +55,6 @@ class FileDownloader extends EventEmitter {
     set keys (v) {
         this._keys = v;
         if (this.process != null) this.process.send({keys: v});
-        else console.warn("Tried to send a message to non existing child process!");
     }
 
     /** @type number */
@@ -69,7 +67,6 @@ class FileDownloader extends EventEmitter {
     set appId (v) {
         this._appId = v;
         if (this.process != null) this.process.send({appId: v});
-        else console.warn("Tried to send a message to non existing child process!");
     }
 
     /** @type string */
@@ -82,7 +79,6 @@ class FileDownloader extends EventEmitter {
     set depotId (v) {
         this._depotId = v;
         if (this.process != null) this.process.send({depotId: v});
-        else console.warn("Tried to send a message to non existing child process!");
     }
 
     /** @type Array<ContentServer> */
@@ -95,7 +91,6 @@ class FileDownloader extends EventEmitter {
     set servers (v) {
         this._servers = v;
         if (this.process != null) this.process.send({servers: v});
-        else console.warn("Tried to send a message to non existing child process!");
     }
 
     _targetPath;
@@ -107,7 +102,6 @@ class FileDownloader extends EventEmitter {
     set targetPath (v) {
         this._targetPath = v;
         if (this.process != null) this.process.send({targetPath: v});
-        else console.warn("Tried to send a message to non existing child process!");
     }
 
     constructor (config) {
@@ -125,8 +119,7 @@ class FileDownloader extends EventEmitter {
         try {
             this.process.send(this.config);
         } catch (e) {
-            //console.error("Failed sending file worker config:", e);
-            return;
+            return this.emit("error", e);
         }
         if (this.promise != null) {
 			if (this.keys != null && this.appId != null && this.depotId != null && this.servers != null && this.file != null && this.targetPath != null && this.restartCount <= 3) {
@@ -139,12 +132,10 @@ class FileDownloader extends EventEmitter {
                 this.process.send({targetPath: this.targetPath});
                 this.process.send({start: true});
 			} else if (this.keys != null && this.appId != null && this.depotId != null && this.servers != null && this.file != null && this.targetPath != null) {
-				//console.error("File worker exited unexpectedly after multiple tries");
 				this.promise.reject(new Error("File worker exited unexpectedly after multiple tries"));
 				this.promise = null;
                 this.emit("finish", true);
 			} else {
-				//console.error("File worker exited unexpectedly and could not be recovered");
 				this.promise.reject(new Error("File worker exited unexpectedly and could not be recovered"));
 				this.promise = null;
                 this.emit("finish", true);
@@ -192,7 +183,9 @@ class FileDownloader extends EventEmitter {
         if (m.type == "reset") {
             this.reset();
         } else if (m.type == "failure") {
-            this.promise.reject(new Error(m.error));
+            let e = new Error(m.error);
+            e.stack = m.stack;
+            this.promise.reject(e);
             this.promise = null; //Reset the promise
             this.emit("finish", true);
         } else if (m.type == "complete") {
@@ -201,6 +194,10 @@ class FileDownloader extends EventEmitter {
             this.promise.resolve(true);
             this.promise = null;
             this.emit("finish", true);
+        } else if (m.type == "error") {
+            let e = new Error(m.error);
+            e.stack = m.stack;
+            this.emit("error", e);
         } else if (m.type == "chunkComplete") {
             this.emit("chunkComplete", m.chunk);
         }
@@ -267,9 +264,8 @@ class IFileDownloader {
     }
 
     onError (e) {
-        //console.error("Something went wrong creating the file: " + this.file.filename, e);
         this.reset();
-        return process.send({type: "failure", error: e.message || e.code});
+        return process.send({type: "failure", error: e.message || e.code, stack: e.stack});
     }
 
     /**
@@ -324,7 +320,6 @@ class IFileDownloader {
      * @returns 
      */
     async processChunk (data, depot_id, chunk) {
-        //console.log("Start processChunk", this.workerHooks.length, chunk.sha);
         let worker = this.availableWorker;
         if (worker == null) worker = await this.workerHook();
         worker.reset();
@@ -347,7 +342,6 @@ class IFileDownloader {
      * @param {number} fd
      */
     async downloadChunk (chunk, depot_id, fd) {
-        //console.log("Start", this.concurrent, chunk.sha);
         while (this.concurrent >= this.config.concurrentDownloads) await this.wait();
         this.concurrent++;
         //console.log("Downloading", chunk.sha);
@@ -365,7 +359,6 @@ class IFileDownloader {
 		};
         await server.dispatcher.stream(options, ({ statusCode, opaque: { data } }) => {
 			if (statusCode != 200) {
-				//console.error("Download status error:", statusCode);
 				throw new Error("Download status error:", statusCode);
 			}
 			return new Writable({
@@ -378,8 +371,7 @@ class IFileDownloader {
         data = Buffer.concat(data);
 		let result = await this.processChunk(data, depot_id, chunk);
 		if (Util.getHash(result) != chunk.sha) {
-            //console.log("Checksum failure", Util.getHash(result), result.length, chunk.sha);
-            throw new Error('Checksum mismatch');
+            throw new Error('Checksum mismatch for chunk ' + chunk.sha);
 		} else {
 			FS.writeSync(fd, result, 0, result.length, parseInt(chunk.offset));
             process.send({type: "chunkComplete", chunk: chunk});
@@ -397,11 +389,16 @@ class IFileDownloader {
 
     test = [];
 
+    chunkError (e) {
+        process.send({type: "error", error: e.message || e.code, stack: e.stack});
+        return e;
+    }
+
     async start () {
         if (this.keys == null || this.appId == null || this.depotId == null || this.servers == null || this.file == null || this.targetPath == null) {
-            //console.error("Child tried to start without required values", this.keys, this.appId, this.depotId, this.servers, this.file, this.targetPath);
+            let e = new Error("Missing required values");
             this.reset();
-            return process.send({type: "failure", error: "Missing required values"});
+            return process.send({type: "failure", error: "Missing required values", stack: e.stack});
         }
         let fullpath = Path.join(this.targetPath, this.file.filename.replaceAll("\\", "/"));
 		if (FS.existsSync(Path.parse(fullpath).dir) == false) FS.mkdirSync(Path.parse(fullpath).dir, {recursive: true});
@@ -416,9 +413,8 @@ class IFileDownloader {
             this.fd = FS.openSync(fullpath, 'w', mode);
             FS.ftruncateSync(this.fd, parseInt(this.file.size));
         } catch (e) {
-            //console.error("Something went wrong creating the file: " + this.file.filename, e);
             this.reset();
-            return process.send({type: "failure", error: e.message || e.code});
+            return process.send({type: "failure", error: e.message || e.code, stack: e.stack});
         }
 
         for (let i in this.file.chunks) this.test[i] = {sha: this.file.chunks[i].sha, done: false};
@@ -430,13 +426,12 @@ class IFileDownloader {
                 for (let i in proms) {
                     let chunk = this.file.chunks[i];
                     if (proms[i] != true) {
-                        proms[i] = this.downloadChunk(chunk, this.depotId, this.fd).catch(e => e).finally(this.chunkComplete.bind(this, chunk));
+                        proms[i] = this.downloadChunk(chunk, this.depotId, this.fd).catch(this.chunkError.bind(this)).finally(this.chunkComplete.bind(this, chunk));
                     }
                 }
-            } else this.file.chunks.forEach((chunk) => proms.push(this.downloadChunk(chunk, this.depotId, this.fd).catch(e => e).finally(this.chunkComplete.bind(this, chunk))));
+            } else this.file.chunks.forEach((chunk) => proms.push(this.downloadChunk(chunk, this.depotId, this.fd).catch(this.chunkError.bind(this)).finally(this.chunkComplete.bind(this, chunk))));
             proms = await Promise.all(proms);
             if (!proms.some(e => e != true)) notDone = false;
-            //console.log("Checking", notDone);
         }
         FS.closeSync(this.fd);
         this.fd = null;

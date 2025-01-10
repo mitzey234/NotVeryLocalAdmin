@@ -31,17 +31,13 @@ class Decoder extends EventEmitter {
 		this.sha = sha;
 		this.data = data;
 		this.key = key;
-		//console.log("Processing", sha,);
 		this.process.send(obj);
         return temp;
 	}
 
 	onExit () {
         this.process = null;
-        if (!this.stopping) {
-			//console.error("Decompression worker exited unexpectedly!");
-			this.init();
-		}
+        if (!this.stopping) this.init();
     }
 
 	constructor () {
@@ -61,13 +57,11 @@ class Decoder extends EventEmitter {
 				let obj = {sha: this.sha, data: this.data, key: this.key};
 				this.process.send(obj);
 			} else if (this.data != null && this.sha != null && this.key != null) {
-				//console.error("Decompression worker exited unexpectedly after multiple tries");
 				this.promise.reject(new Error("Decompression worker exited unexpectedly after multiple tries"));
 				this.promise = null;
 				let sha = this.sha;
 				this.emit("finish", sha);
 			} else {
-				//console.error("Decompression worker exited unexpectedly and could not be recovered");
 				this.promise.reject(new Error("Decompression worker exited unexpectedly and could not be recovered"));
 				this.promise = null;
 				let sha = this.sha;
@@ -94,7 +88,9 @@ class Decoder extends EventEmitter {
 		} else if (m.error != null) {
 			let sha = this.sha;
 			this.reset();
-			this.promise.reject(m.error);
+			let err = new Error(m.error);
+			err.stack = m.stack;
+			this.promise.reject(err);
 			this.emit("finish", sha);
 		}
 	}
@@ -112,11 +108,9 @@ class IDecoder extends EventEmitter {
 			let decrypted = SteamCrypto.symmetricDecrypt(data, key);
 			let result = await this.unzip(decrypted);
 			let obj = {result};
-			//console.log("Resolved:", sha);
 			process.send(obj);
 		} catch (err) {
-			//console.error("Decode error:", sha);
-			process.send({error: err.code || err.message});
+			process.send({error:  (err.code || err.message), stack: err.stack});
 		}
 	}
 	

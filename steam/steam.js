@@ -67,11 +67,8 @@ class Steam extends EventEmitter {
         this.cdn.on("error", this.onError.bind(this));
         this.cdn.on("disconnected", this.onDisconnect.bind(this));
         this.cdn.on("loggedOn", this.onLogin.bind(this));
-        //console.log("Logging in");
         this.cdn.logOn({anonymous: true});
     }
-
-    //TODO: Logging system
 
     hook () {
         if (this.hooks == null) this.hooks = [];
@@ -194,7 +191,6 @@ class Steam extends EventEmitter {
             try {
                 if (await Util.fileHash(fullpath) == file.sha_content) {
                     this.downloaded += parseInt(file.size);
-                    //console.log("File already exists: " + file.filename);
                     return true;
                 }
             } catch {/* ignore */}
@@ -222,6 +218,11 @@ class Steam extends EventEmitter {
         worker.on("chunkComplete", chunk => this.downloaded += chunk.cb_original);
         worker.on("error", this.onError.bind(this)); // Handle worker errors
         this.workers.push(worker); // Initialize file workers
+    }
+
+    fileError (e) {
+        this.emit("error", e);
+        return e;
     }
 
     async download(appId, targetPath = "./", branch = "public", password) {
@@ -287,7 +288,7 @@ class Steam extends EventEmitter {
         this.state = States.Downloading;
         let proms = [];
         this.downloaded = 0;
-        for (let [id, manifest] of this.manifests) manifest.files.forEach(file => proms.push(this.getFile(manifest, file, targetPath).catch((e) => {return e})));
+        for (let [id, manifest] of this.manifests) manifest.files.forEach(file => proms.push(this.getFile(manifest, file, targetPath).catch(this.fileError.bind(this))));
         proms = await Promise.all(proms);
         if (proms.some(e => e != true)) {
             this.reset(); // Reset the state if there's an error
@@ -297,7 +298,6 @@ class Steam extends EventEmitter {
             throw e; //Pass the error along
         }
         this.reset();
-        //console.log("Done");
         return true;
     }
 
@@ -334,6 +334,12 @@ class Steam extends EventEmitter {
         while (this.workerHooks.length > 0) this.workerHooks.shift()();
         this.cdn.logOff();
         this.cdn = null;
+        this.removeAllListeners("login");
+        this.removeAllListeners("disconnect");
+        this.removeAllListeners("error");
+        this.removeAllListeners("state");
+        this.removeAllListeners("progress");
+        this.on("error", () => {}); //Ignore all errors from this instance
     }
 }
 
