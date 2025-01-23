@@ -29,7 +29,7 @@ class MachineState extends EventEmitter {
 }
 
 /** @augments {Map<string, Server>} */
-class ExternalServerMap extends Map {
+class ServerMap extends Map {
     /** @type {exports.Main} */
     main;
   
@@ -45,6 +45,7 @@ class ExternalServerMap extends Map {
      * @param {Server} server 
      */
     set (serverId, server) {
+        //TODO: This needs to be handled specially
         super.set(serverId, server);
         //TODO: Send to vega
     }
@@ -53,6 +54,7 @@ class ExternalServerMap extends Map {
      * @param {string} serverId 
      */
     delete (serverId) {
+        //TODO: This needs to be handled specially
         if (!this.has(serverId)) return;
         let server = this.get(serverId);
         server.stop();
@@ -62,6 +64,12 @@ class ExternalServerMap extends Map {
   
     clear () {
         this.forEach((server, id) => this.delete(id));
+    }
+
+    toJSON () {
+        let obj = {};
+        this.forEach((server, id) => obj[id] = server.toJSON());
+        return obj;
     }
 }
 
@@ -81,7 +89,7 @@ module.exports.Main = class Main {
 
     daemonMode = false;
 
-    servers = new ExternalServerMap(this);
+    servers = new ServerMap(this);
 
     constructor(daemonMode = false) {
         this.state.label = this.settings.Vega.label;
