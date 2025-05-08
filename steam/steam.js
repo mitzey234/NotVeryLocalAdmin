@@ -62,6 +62,7 @@ class Steam extends EventEmitter {
 
     constructor (config = new settings()) {
         super();
+        console.log("Steam CDN Client initialized", config);
         this.config = config;
         this.cdn = new CDN(); // Initialize the CDN instance
         this.cdn.on("error", this.onError.bind(this));
@@ -315,8 +316,8 @@ class Steam extends EventEmitter {
     }
 
     onLogin () {
-        this.emit("login");
         this.state = States.Ready;
+        this.emit("login");
         if (this.hooks != null) {
             this.hooks.forEach(hook => hook()); // Resolve all hooks
             this.hooks = null;
@@ -334,11 +335,17 @@ class Steam extends EventEmitter {
         while (this.workerHooks.length > 0) this.workerHooks.shift()();
         this.cdn.logOff();
         this.cdn = null;
+        if (this.hooks != null) {
+            this.hooks.forEach(hook => hook()); // Resolve all hooks
+            this.hooks = null;
+        }
+        this.emit("destroy");
         this.removeAllListeners("login");
         this.removeAllListeners("disconnect");
         this.removeAllListeners("error");
         this.removeAllListeners("state");
         this.removeAllListeners("progress");
+        this.removeAllListeners("destroy");
         this.on("error", () => {}); //Ignore all errors from this instance
     }
 }

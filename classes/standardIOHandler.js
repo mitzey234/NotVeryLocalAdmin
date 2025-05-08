@@ -55,9 +55,10 @@ class StandardIOHandler {
      */
     constructor(s) {
         this.server = s;
-        this.verbose = this.server.verbose;
-        this.log = this.server.log;
-        this.error = this.server.error;
+        this.verbose = this.server.verbose.bind(this.server);
+        this.log = this.server.log.bind(this.server);
+        this.error = this.server.error.bind(this.server);
+        this.warn = this.server.warn.bind(this.server);
     }
 
     async handleStdout(data) {
@@ -76,8 +77,10 @@ class StandardIOHandler {
                 else if (d[i].indexOf("No mesh data available for mesh") > -1) cleanup = true;
                 else if (d[i].indexOf("Couldn't create a Convex Mesh from source mesh") > -1) cleanup = true;
                 else if (d[i].indexOf("Unknown managed type referenced") > -1) cleanup = true;
+                else if (d[i].indexOf("If subshaders removal was intentional") > -1) cleanup = true;
+                else if (d[i].indexOf("shader is not supported on this GPU") > -1) cleanup = true;
                 if (cleanup == true && this.server.config.cleanLogs) continue;
-                this.verbose(d[i], { logType: "sdtout", cleanup: cleanup }, { color: 8 });
+                this.verbose(d[i], new LP({ logType: "sdtout", cleanup: cleanup, color: 8 }));
             }
     }
 
@@ -90,13 +93,13 @@ class StandardIOHandler {
                 try {
                     data = JSON.parse(data);
                 } catch (e) {
-                    this.error("Failed to parse NVLA Monitor stats: {e}", { e: e });
+                    this.error("Failed to parse NVLA Monitor stats: {e}", new LP({ e: e }));
                     return;
                 }
-                this.server.serverMonitor.onMonitorUpdate(data);
+                this.server.monitor.onMonitorUpdate(data);
                 return;
             }
-            this.error(d[i], { logType: "sdtout", cleanup: false }, { color: 8 });
+            this.error(d[i], new LP({ logType: "sdtout", cleanup: false, color: 8 }));
         }
     }
 
@@ -109,6 +112,7 @@ class StandardIOHandler {
 
     handleServerEvent(code) {
         if (code == 16) {
+            //RoundRestartedEntry
             if (this.server.state.starting) {
                 clearTimeout(this.server.timeout);
                 this.server.timeout = null;
@@ -117,41 +121,40 @@ class StandardIOHandler {
                 this.server.state.starting = false;
                 this.server.state.running = true;
                 this.server.state.uptime = Date.now();
-                this.server.main.emit("serverReady", this);
                 this.server.OnUpdate();
-                if (this.server.startPromise.resolve != null) {
-                    this.server.startPromise.resolve();
-                    this.server.startPromise.resolve = null;
-                    this.server.startPromise.reject = null;
-                }
+                this.server.hooks.resolve("start");
+                this.server.main.balancer.rebalanceServers();
             }
-            if (this.server.main.config.clearLALogs) this.server.clearLALogs();
+            if (this.server.main.settings.clearLALogs) this.server.clearLALogs();
             this.server.state.roundStartTime = null;
         } else if (code == 21 || code == 20) {
+            //ExitActionShutdownEntry or ExitActionSilentShutdownEntry
             if (this.server.state.delayedRestart) this.server.state.delayedRestart = false;
             if (this.server.state.stopping && this.server.state.delayedStop) {
                 this.server.state.delayedStop = false;
-            }
-            else if (this.server.state.stopping && !this.server.state.delayedStop) {
+                this.hooks.resolve("stop", -9); //User cancelled
+            } else if (this.server.state.stopping && !this.server.state.delayedStop) {
                 this.server.state.delayedStop = false;
-            }
-            else {
+                this.hooks.resolve("stop", -9); //User cancelled
+            } else {
                 this.server.state.stopping = true;
                 this.server.state.delayedStop = true;
             }
         } else if (code == 22) {
+            //ExitActionRestartEntry
             if (this.server.state.delayedStop) this.server.state.delayedStop = false;
             if (this.server.state.restarting && this.server.state.delayedRestart) {
                 this.server.state.delayedRestart = false;
-            }
-            else if (this.server.state.restarting && !this.server.state.delayedRestart) {
+                this.hooks.resolve("restart", -9); //User cancelled
+            } else if (this.server.state.restarting && !this.server.state.delayedRestart) {
                 this.server.state.delayedRestart = false;
-            }
-            else {
+                this.hooks.resolve("restart", -9); //User cancelled
+            } else {
                 this.server.state.restarting = true;
                 this.server.state.delayedRestart = true;
             }
         } else if (code == 19) {
+            //ExitActionResetEntry
             if (this.server.state.delayedRestart) {
                 this.server.state.delayedRestart = false;
                 this.server.state.restarting = false;
@@ -160,19 +163,24 @@ class StandardIOHandler {
                 this.server.state.delayedStop = false;
             }
         } else if (code == 17) {
+            //Entering idle mode
             this.server.state.idleMode = true;
             this.server.state.players = [];
             this.server.state.tps = 0;
-            if (this.server.serverMonitor.nvlaMonitorInstalled) {
-                clearTimeout(this.server.serverMonitor.monitorTimeout);
-                this.server.serverMonitor.monitorTimeout = setTimeout(this.server.serverMonitor.monitorUpdateTimeout.bind(this), 60000 * 5);
+            if (this.server.monitor.nvlaMonitorInstalled) {
+                clearTimeout(this.server.monitor.monitorTimeout);
+                this.server.monitor.monitorTimeout = setTimeout(this.server.monitor.monitorUpdateTimeout.bind(this), 60000 * 5);
             }
         } else if (code == 18) {
+            //Exiting idle mode
             this.server.state.idleMode = false;
-            if (this.server.serverMonitor.nvlaMonitorInstalled) {
-                clearTimeout(this.server.serverMonitor.monitorTimeout);
-                this.server.serverMonitor.monitorTimeout = setTimeout(this.server.serverMonitor.monitorUpdateTimeout.bind(this), 8000);
+            if (this.server.monitor.nvlaMonitorInstalled) {
+                clearTimeout(this.server.monitor.monitorTimeout);
+                this.server.monitor.monitorTimeout = setTimeout(this.server.monitor.monitorUpdateTimeout.bind(this), 8000);
             }
+        } else if (code == 23) {
+            //HeartbeatEntry
+            this.log("Heartbeat Entry", new LP({ logType: "heartbeat", color: 6 }));
         }
     }
 
@@ -187,7 +195,7 @@ class StandardIOHandler {
             let control = chunk.readUInt8(0);
             if (control >= 16) {
                 // handle control code
-                if (events[control.toString()] != null) this.log("Event Fired: {codename}", LP({ codename: events[control.toString()], code: control, color: 6 }));
+                if (events[control.toString()] != null) this.log("Event Fired: {codename}", new LP({ codename: events[control.toString()], code: control, color: 6 }));
                 this.handleServerEvent(control);
                 chunk = chunk.slice(1);
                 continue;
@@ -206,19 +214,17 @@ class StandardIOHandler {
             let message = "";
             for (let i = 0; i < m.length; i++) message += String.fromCharCode(m[i])
             if (message.trim() == ("New round has been started.")) this.server.state.roundStartTime = new Date().getTime();
-            if (this.server.serverMonitor.checkCallback != null && message.indexOf("List of players") > -1) {
+            if (this.server.monitor.checkCallback != null && message.indexOf("List of players") > -1) {
                 var players = message.substring(message.indexOf("List of players") + 17, message.indexOf("List of players") + 17 + message.substring(message.indexOf("List of players") + 17).indexOf(")"));
                 players = parseInt(players);
-                if (isNaN(players)) players = 0;
-                let arr = [];
-                for (let i = 0; i < players; i++) arr.push("Unknown");
-                this.server.state.players = arr;
-                this.server.tps = 0;
-                this.server.serverMonitor.checkTimeoutCount = 0;
-                clearTimeout(this.server.serverMonitor.checkTimeout);
-                this.server.serverMonitor.checkTimeout = null;
+                if (isNaN(players)) players = -1;
+                this.server.state.players = players;
+                this.server.tps = -1;
+                this.server.monitor.checkTimeoutCount = 0;
+                clearTimeout(this.server.monitor.checkTimeout);
+                this.server.monitor.checkTimeout = null;
                 this.tempListOfPlayersCatcher = true;
-                this.server.serverMonitor.checkCallback();
+                this.server.monitor.checkCallback();
                 return;
             }
             if (this.tempListOfPlayersCatcher) message = message.replaceAll("\n*\n", "*");
@@ -227,7 +233,7 @@ class StandardIOHandler {
             if (message.charAt(0) == "\n") message = message.substring(1, message.length);
             if (message.indexOf("Welcome to") > -1 && message.length > 1000) message = colors[control]("Welcome to EXILED (ASCII Cleaned to save your logs)");
             //TODO: this.server.main.vega.client.sendMessage(new mt.serverConsoleLog(this.server.config.id, message.replace(ansiStripRegex, "").trim(), control));
-            this.log(message.trim(), LP({ logType: "console", color: control }));
+            this.log(message.trim(), new LP({ logType: "console", color: control }));
         }
     }
 
@@ -250,7 +256,7 @@ class StandardIOHandler {
     }
 
     onSocketEnd() {
-        this.log("Console Socket Disconnected", LP({ color: 4 }));
+        this.log("Console Socket Disconnected", new LP({ color: 4 }));
         this._socket = null;
         this.connectionToServer = null;
     }
@@ -259,7 +265,7 @@ class StandardIOHandler {
         try {
             this.socket.end();
         } catch (e) { }
-        this.verbose("Console Socket Error: {e}", { e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e }, { color: 4 });
+        this.verbose("Console Socket Error: {e}", new LP({ e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e, color: 4 }));
         this._socket = null;
         this.connectionToServer = null;
     }

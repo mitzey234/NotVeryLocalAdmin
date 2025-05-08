@@ -12,6 +12,7 @@ class ServerMonitor {
         this.verbose = this.server.verbose;
         this.log = this.server.log;
         this.error = this.server.error;
+        this.warn = this.server.warn;
     }
 
     /** @type boolean */
@@ -67,7 +68,7 @@ class ServerMonitor {
         if (value == this._nvlaMonitorInstalled) return;
         this._nvlaMonitorInstalled = value;
         if (value == true && this._enabled) {
-            this.log("NVLA Monitor detected", LP({ color: 3 }));
+            this.log("NVLA Monitor detected", new LP({ color: 3 }));
             if (this.updateInterval != null) clearInterval(this.updateInterval);
             this.updateInterval = setInterval(this.update.bind(this), 1000);
         } else {
@@ -83,15 +84,15 @@ class ServerMonitor {
                 await this.checkServer();
             } catch (e) {
                 if (e == "Timeout") {
-                    this.error("Failed to check server, server timed out " + this.checkTimeoutCount, null, { color: 4 });
+                    this.error("Failed to check server, server timed out {count}", new LP({count: this.checkTimeoutCount, color: 4 }));
                     this.checkTimeoutCount++;
                     if (this.checkTimeoutCount >= this.server.config.maximumServerUnresponsiveTime / 8) {
-                        this.error("Server is unresponsive, restarting", null, { color: 4 });
+                        this.error("Server is unresponsive, restarting", new LP({ color: 4 }));
                         this.server.state.restarting = true;
                         this.process.kill(9);
                     }
                 } else {
-                    this.error("Failed to check server, code: {e}", { e: e });
+                    this.error("Failed to check server, code: {e}", new LP({ e: e }));
                 }
             }
             this.checkCallback = null;
@@ -107,7 +108,7 @@ class ServerMonitor {
         if (!this.server.state.running) return;
         if (this.nvlaMonitorInstalled == false) {
             this.nvlaMonitorInstalled = true;
-            this.log("NVLA Monitor detected", LP({ color: 3 }));
+            this.log("NVLA Monitor detected", new LP({ color: 3 }));
             if (this.checkTimeout != null) {
                 clearTimeout(this.checkTimeout);
                 this.checkTimeout = null;
@@ -118,9 +119,9 @@ class ServerMonitor {
             }
             this.checkInProgress = false;
         }
-        this.server.state.players = data.players;
+        this.server.state.players = data.players.length;
         this.server.state.tps = data.tps;
-        if (this.server.state.idleMode) this.server.state.tps = null;
+        if (this.server.state.idleMode) this.server.state.tps = -1;
         clearTimeout(this.monitorTimeout);
         this.checkTimeoutCount = 0;
         this.monitorTimeout = setTimeout(this.monitorUpdateTimeout.bind(this), this.server.state.idleMode ? 60000 * 5 : 8000);
@@ -129,10 +130,10 @@ class ServerMonitor {
 
     monitorUpdateTimeout() {
         if (!this.server.state.running) return;
-        this.error("Failed to check server, NVLA Monitor timed out " + this.checkTimeoutCount, null, { color: 4 });
+        this.error("Failed to check server, NVLA Monitor timed out {count}", new LP({count: this.checkTimeoutCount, color: 4 }));
         this.checkTimeoutCount++;
         if (this.checkTimeoutCount >= this.config.maximumServerUnresponsiveTime / 8) {
-            this.error("Server is unresponsive, restarting", null, { color: 4 });
+            this.error("Server is unresponsive, restarting", new LP({ color: 4 }));
             this.server.state.restarting = true;
             this.process.kill(9);
         } else {

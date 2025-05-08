@@ -2,6 +2,7 @@
 const core = require('./classes/core.js');
 const fs = require('fs');
 let args = process.argv.filter(i => i.trim() != "");
+let LP = require('./classes/logging.js').LP;
 
 /** @type {import("./classes/core.js")["Main"]["prototype"]} */
 let main;
@@ -49,7 +50,7 @@ stdin.addListener("data", function(d) {
 	try {
 		//TODO: evaluate(test);
 	} catch (e) {
-		main.log("Failed user input: {input} - {e}", new main.lp({input: test, e: e.code || e.message, stack: e.stack}));
+		main.log("Failed user input: {input} - {e}", new LP({input: test, e: e.code || e.message, stack: e.stack}));
 	}
 });
 

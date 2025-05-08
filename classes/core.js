@@ -2,31 +2,21 @@ const Settings = require('./settings.js');
 const Logging = require('./logging.js');
 const Util = require('./util.js');
 const pack = require("../package.json");
-//TODO: Import server class
-const EventEmitter = require("events");
+const Server = require('./server.js');
 const chalk = require("chalk");
 const Vega = require("./vega.js");
 var os = require('os-utils');
 const { spawn } = require('child_process');
+const MachineState = require('./machineState.js');
+const Rebalancer = require('./rebalancer.js');
+const pidusage = require('pidusage')
+const fs = require('fs');
+const path = require('path');
+const VerkeyWatcher = require('./verkeyWatcher.js');
+const EchoServer = require('./echoServer.js');
+const MemoryMonitor = require('./memoryMonitor.js');
 
-class MachineState extends EventEmitter {
-    uptime = Date.now();
-  
-    cpu = 0;
-
-    systemCPU = 0;
-    
-    label = "";
-  
-    constructor() {
-        super();
-        Util.processObjectShallow(this);
-    }
-  
-    toObject () {
-        return Util.filterSerializableProperties(this);
-    }
-}
+var verkeyPath = process.platform == "win32" ? path.join(process.env.APPDATA, "SCP Secret Laboratory", "verkey.txt") : path.join(process.env.HOME, ".config", "SCP Secret Laboratory", "verkey.txt");
 
 /** @augments {Map<string, Server>} */
 class ServerMap extends Map {
@@ -45,7 +35,6 @@ class ServerMap extends Map {
      * @param {Server} server 
      */
     set (serverId, server) {
-        //TODO: This needs to be handled specially
         super.set(serverId, server);
         //TODO: Send to vega
     }
@@ -83,35 +72,60 @@ module.exports.Main = class Main {
     warn = this.logger.warn.bind(this.logger);
     debug = this.logger.debug.bind(this.logger);
 
-    updateInt = setInterval(() => this.update(), 1000);
+    stopping = false;
 
-    state = new MachineState();
+    get verkey () {
+        if (fs.existsSync(verkeyPath)) {
+            try {
+                return fs.readFileSync(verkeyPath).toString();
+            } catch (e) {
+                this.error("Failed to read verkey: {error}", this.lp({error: e?.code || e?.message, stack: e?.stack}));
+            }
+        }
+        return null;
+    }
 
-    daemonMode = false;
-
-    servers = new ServerMap(this);
+    set verkey (value) {
+        try {
+            if (!fs.existsSync(path.parse(verkeyPath).dir)) fs.mkdirSync(path.parse(verkeyPath).dir, { recursive: true });
+            fs.writeFileSync(verkeyPath, value);
+          } catch (e) {
+            this.error("Failed to write verkey: {error}", this.lp({error: e?.code || e?.message, stack: e?.stack}));
+          }
+    }
 
     constructor(daemonMode = false) {
-        this.state.label = this.settings.Vega.label;
         this.daemonMode = daemonMode;
-        this.state.on("set", this.onStateUpdate.bind(this));
-        this.log("Welcome to " + chalk.cyan("NotVeryLocalAdmin") + ' v{version} - {pid}' + (this.daemonMode ? " - Daemon Mode Enabled" : ""), this.lp({consoleColor: 2, pid: process.pid, version: pack.version}));
+        if (!fs.existsSync(this.settings.serversFolder)) fs.mkdirSync(this.settings.serversFolder, { recursive: true });
         this.start();
     }
     
     async start() {
+        while (this.logger.ready == false) await Util.Delay(1);
+        this.EchoServer = new EchoServer(this);
+        this.verkeyWatcher = new VerkeyWatcher(this);
+        this.interval = setInterval(this.update.bind(this), 1000);
+        this.balancer = new Rebalancer(this);
+        this.updateInt = setInterval(() => this.update(), 1000);
+        this.state = new MachineState();
+        this.servers = new ServerMap(this);
+        this.memoryMonitor = new MemoryMonitor(this);
+        this.state.label = this.settings.Vega.label;
+        this.state.on("set", this.onStateUpdate.bind(this));
+        this.log("Welcome to " + chalk.cyan("NotVeryLocalAdmin") + ' v{version} - {pid}' + (this.daemonMode ? " - Daemon Mode Enabled" : ""), this.lp({consoleColor: 2, pid: process.pid, version: pack.version}));
+        this.update();
         this.vega = new Vega(this);
-        //TODO: check cpu affinity ability
     }
     
     async stop () {
         //TODO: This needs to stop all servers and wait for them to exit
         //TODO: This needs to force quit if called again
-        clearInterval(this.recoveryInt);
+        clearInterval(this.interval);
         this.vega.stop();
+        this.stopping = true;
         this.SettingChangeHandler.disabled = true;
         this.servers.forEach(server => server.stop());
-        while ([...this.servers.values()].filter(server => server.state.state != server.states.stopped).length > 0) await Util.Delay(1);
+        while ([...this.servers.values()].filter(server => server.process != null).length > 0) await Util.Delay(1);
         this.logger.stop();
         process.exit(0);
     }
@@ -122,7 +136,7 @@ module.exports.Main = class Main {
         } else {
             let server;
             this.servers.forEach((s) => {
-                if (s.config.label == hint || s.config.label.indexOf(hint) > -1) server = s;
+                if (s.label == hint || s.label.indexOf(hint) > -1) server = s;
             });
             if (server != null) return server;
             this.servers.forEach((s) => {
@@ -163,12 +177,44 @@ module.exports.Main = class Main {
     update () {
         this.updateCPU();
         this.updateSystemCPU();
+        this.updateServerCPUs();
+    }
+
+    updateInProgress = false;
+
+    handlePIDQuery (e, stats) {
+        if (e) return this.error("Failed to get server process usage: {error}", this.lp({ error: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e }));
+        for (let i in stats) {
+            let stat = stats[i];
+            if (stat == null) continue;
+            /** @type Server */
+            let server;
+            this.servers.forEach((s) => {
+                if (s.process == null || s.process.pid == null) return;
+                if (s.process.pid == i) return server = s;
+            });
+            if (server == null) continue;
+            server.state.cpu = stat.cpu / (100 * os.cpuCount());
+            server.state.memory = stat.memory;
+        }
+    }
+
+    updateServerCPUs() {
+        if (this.updateInProgress) return;
+        this.updateInProgress = true;
+        try {
+            let pids = [];
+            this.servers.forEach((server) => (server.process != null && server.process.pid != null) ? pids.push(server.process.pid) : null);
+            if (pids.length > 0) pidusage(pids, this.handlePIDQuery.bind(this));
+            this.servers.forEach(async (server) => server.OnUpdate());
+        } catch (e) {
+            this.error("Failed to update server cpus: {e}", this.lp({ e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e }));
+        }
+        this.updateInProgress = false;
     }
 
     updateSystemCPU() {
-        os.cpuUsage((v) => {
-            this.state.systemCPU = Math.floor(v*10000)/100;
-        });
+        os.cpuUsage((v) => this.state.systemCPU = Math.floor(v*10000)/100);
     }
 
     updateCPU() {

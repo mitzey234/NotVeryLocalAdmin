@@ -1,5 +1,6 @@
 const crypto = require("crypto");
-
+const EventEmitter = require("events");
+const { exec } = require("child_process");
 
 function s(x,y){
     var pre = ['string' , 'number' , 'bool']
@@ -61,18 +62,18 @@ function processObjectShallow (obj) {
  */
 function filterSerializableProperties(obj, ...skip) {
     const result = {};
-
     for (const key in obj) {
         const value = obj[key];
         if (typeof value !== 'function' && !key.startsWith("_") && !skip.includes(key)) {
-            if (typeof value === 'object' && !Array.isArray(value) && value !== null) {
+            if (typeof value === 'object' && !Array.isArray(value) && !(value instanceof SetEmitter)  && value !== null) {
                 result[key] = filterSerializableProperties(value); // Recursively filter nested objects
             } else {
                 result[key] = value;
             }
+        } else if (value instanceof SetEmitter) {
+            result[key] = value.toJSON();
         }
     }
-    
     return result;
 }
 
@@ -98,6 +99,90 @@ function cleanInput (args) {
     return args
 }
 
+function runCommand (command) {
+    return new Promise(function (resolve) {
+        let run = exec(command);
+        run.on("close", resolve);
+    }.bind(command));
+}
+
+function convertToMask (cpus) {
+    if (typeof cpus == "object" && Array.isArray(cpus)) {
+        let sum = 0;
+        for (let i in cpus) sum += Math.pow(2,cpus[i]);
+        return sum.toString(16);
+    } else if (typeof cpus == "number") {
+        return Math.pow(2,cpus).toString(16);
+    } else {
+        throw "Unsupported type:" + typeof cpus;
+    }
+}
+
+class SetEmitter extends Set {
+
+    /**
+     * @param {EventEmitter} source 
+     * @param  {...any} args 
+     */
+    constructor(source, ...args) {
+        super(...args);
+        this.source = source;
+    }
+    
+    /**
+     * Adds a new element to the CustomSet.
+     * @param {*} value - The value to add to the set.
+     * @returns {SetEmitter} - The CustomSet object.
+     */
+    add(value) {
+        if (super.has(value)) return this;
+        super.add(value);
+        this.source.emit("add", value);
+        return this;
+    }
+
+    /**
+     * Removes an element from the CustomSet.
+     * @param {*} value - The value to remove from the set.
+     * @returns {boolean} - True if the value was successfully removed, false otherwise.
+     */
+    delete(value) {
+        if (!super.has(value)) return false;
+        super.delete(value);
+        this.source.emit("delete", value);
+        return true;
+    }
+
+    /**
+     * Clears all elements from the CustomSet.
+     */
+    clear() {
+        this.forEach(value => this.delete(value));
+    }
+
+    toJSON() {
+        return Array.from(this);
+    }
+}
+
+function toInt32 (int) {
+    int = int.toString(16);
+    while (int.length < 8) int = "0"+int;
+    var arr = [];
+    for (let i = 0; i<int.length/2; i++) arr[i] = int[i*2] + int[i*2+1];
+    var arr2 = [];
+    for (let i = 0; i<arr.length; i++) arr2[i] = arr[arr.length-i-1];
+    return Buffer.from(arr2.join(""), "hex");
+}
+
+function formatBytes(bytes) {
+    if (bytes < 1000) return bytes + " B";
+    else if (bytes < 1000000) return (bytes / 1000).toFixed(2) + " KB";
+    else if (bytes < 1000000000) return (bytes / 1000000).toFixed(2) + " MB";
+    else if (bytes < 1000000000000) return (bytes / 1000000000).toFixed(2) + " GB";
+    else return (bytes / 1000000000000).toFixed(2) + " TB";
+}
+
 module.exports.s = s;
 module.exports.equals = equals;
 module.exports.processObjectProp = processObjectProp;
@@ -107,3 +192,8 @@ module.exports.Delay = Delay;
 module.exports.len = len;
 module.exports.generateId = generateId;
 module.exports.cleanInput = cleanInput;
+module.exports.runCommand = runCommand;
+module.exports.convertToMask = convertToMask;
+module.exports.SetEmitter = SetEmitter;
+module.exports.toInt32 = toInt32;
+module.exports.formatBytes = formatBytes;

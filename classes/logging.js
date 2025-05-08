@@ -70,11 +70,11 @@ class winstonLoggerSeq {
     constructor(main, settings) {
         this.main = main;
         this.settings = settings;
-        if (this.settings.enabled) this.start();
+        if (this.settings.enabled) this.promise = this.start();
     }
 
     async log(args) {
-        args.application = "SCPProxy";
+        args.application = "NotVeryLocalAdmin";
         args.identifier = this.main.Main.settings.Vega.id || this.main.Main.settings.Vega.label;
         if (args.type == null) args.type = "log";
         if (this.errored) return;
@@ -214,6 +214,8 @@ module.exports.Logger = class Logger {
 
     logFileTransport;
 
+    ready = false;
+
     constructor(main) {
         this.Main = main;
         this.settings = this.Main.settings.log;
@@ -225,6 +227,12 @@ module.exports.Logger = class Logger {
             this.logFileTransport = this.createRotatedLogTransport();
             this.winston.add(this.logFileTransport);
         }
+        this.wait();
+    }
+
+    async wait() {
+        await this.seq.promise;
+        this.ready = true;
     }
 
     stop () {
@@ -258,6 +266,7 @@ module.exports.Logger = class Logger {
             pre += "["+timestamp+"]" + " ";
         }
         
+        if (data.serverName != null) pre += "["+data.serverName+"]" + " ";
         if (this.settings.showLevel) pre += "["+data.level+"]" + " ";
         if (this.settings.showLabels && data.label != null) pre += "["+data.label+"]" + " ";
         if (this.settings.includeFunctionLocation) pre += "["+properties.funcLocation+"]" + " ";

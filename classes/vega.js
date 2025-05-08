@@ -3,6 +3,7 @@ const path = require('path');
 const message = require('./message.js');
 const { Client } = require("./socket");
 const auth = require("./messages/templates/auth");
+const RequestFiles = require("./messages/templates/requestFiles");
 
 class pingSystem {
     pingInProgress = false;
@@ -64,6 +65,8 @@ class Vega {
     /** @type pingSystem */
     pingSystem;
 
+    requests = new Map();
+
     constructor(main) {
         this.main = main;
         fs.readdir(path.join(__dirname, "messages/recieved/"), (err, files) => (err == null ? files.forEach(file => this.addMessage(path.join(__dirname, "messages/recieved", file))) : this.main.error("Message parser config error: {error}", this.main.lp({error: err?.code || err?.message, stack: err?.stack}))) || this.connect());
@@ -74,6 +77,12 @@ class Vega {
         if (def.prototype == null || !(def.prototype instanceof message)) return this.main.error("Invalid message handler: {file}", this.main.lp({file}));
         this.handlers.set(def.name, def);
         this.main.debug("Added message handler: {name}", this.main.lp({name: def.name}));
+    }
+
+    get requestId () {
+        let id = 0;
+        while (this.requests.has(id)) id++;
+        return id;
     }
 
     connect() {
@@ -135,6 +144,32 @@ class Vega {
         this.stopping = true;
         if (this.pingSystem != null) this.pingSystem.stop();
         if (this.connected) this.socket.destroy();
+    }
+
+    promise (obj) {
+        let prom = new Promise((resolve, reject) => {
+            obj.resolve = resolve;
+            obj.reject = reject;
+            obj.timeout = setTimeout(() => {
+                obj.reject(new Error("Request timed out"));
+                this.requests.delete(obj.id);
+            }, 10000);
+        });
+        return prom;
+    }
+
+    requestFiles (label, serverId) {
+        if (this.connected) {
+            this.main.log("Requesting files from Vega", this.main.lp({consoleColor: 5, server: serverId, label})); 
+            let id = this.requestId;
+            let prom = {id};
+            this.requests.set(id, prom);
+            this.send(new RequestFiles(this, serverId, label, id));
+            return this.promise(prom);
+        } else {
+            this.main.error("Failed to request files from Vega, not connected", this.main.lp({consoleColor: 4}));
+            return -1;
+        }
     }
 }
 

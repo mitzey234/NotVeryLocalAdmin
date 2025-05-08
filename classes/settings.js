@@ -2,6 +2,7 @@ const EventEmitter = require('events');
 const fs = require('fs');
 const util = require('./util.js');
 const ignoreSettings = [];
+const path = require('path');
 
 /** BE CAREFUL WITH THIS FUNCTION, It will process any Null values as valid properties that can be modified
  * @param {*} setting 
@@ -236,38 +237,34 @@ module.exports.Settings = class Settings extends EventEmitter {
     /** @type Vega */
     Vega = Vega;
 
-    /** @type string */
-    serversFolder = "./Servers";
+    /** @type Steam */
+    Steam = Steam;
 
-    /** @type number */
+    serversFolder = path.relative(process.cwd(), path.join(__dirname, "..", "servers"));
+
+    echoServerEnabled = true;
+
     echoServerPort = 5051;
 
-    /** @type string */
     echoServerAddress = "0.0.0.0";
 
-    /** @type boolean */
     cpuBalance = true;
 
-    /** @type number */
     cpusPerServer = 2;
 
-    /** @type boolean */
     memoryChecker = true;
 
-    /** @type number */
     minimumMemoryThreashold = 500000000;
 
-    /** @type number */
     criticalMemoryThreashold = 100000000;
 
-    /** @type string */
-    verkey = null;
-
-    /** @type number */
     serverStartTimeout = 60;
 
-    /** @type number */
     serverRestartReqTimeout = 3;
+
+    uploadNewFiles = true;
+
+    clearLALogs = true;
 
     constructor(obj) {
       super();
@@ -298,9 +295,12 @@ module.exports.Settings = class Settings extends EventEmitter {
         delete obj.Vega;
       } else this.Vega = new this.Vega({});
 
-      for (var i in obj) {
-        this[i] = obj[i];
-      }
+      if (obj.Steam != null) {
+        this.Steam = new this.Steam(obj.Steam);
+        delete obj.Steam;
+      } else this.Steam = new this.Steam({});
+
+      for (var i in obj) this[i] = obj[i];
 
       for (let i in this) if (i != "_eventsCount") processSetting.bind(this)(this[i], [i], this.emit.bind(this));
 
@@ -421,4 +421,20 @@ class Vega {
       this[i] = obj[i];
     }
   }
+}
+
+class Steam {
+    /** How many workers should be dispatched for the file queue */
+    fileWorkers = 2;
+
+    /** How many file decoding workers should be dispatched per file */
+    decodeWorkers = 4;
+
+    concurrentDownloads = 4;
+
+    constructor(obj) {
+      for (var i in obj) {
+        this[i] = obj[i];
+      }
+    }
 }
