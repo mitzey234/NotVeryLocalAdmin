@@ -66,19 +66,25 @@ class StandardIOHandler {
         for (let i in d)
             if (d[i].trim() != "") {
                 var cleanup = false;
-                if (d[i].indexOf("The referenced script") > -1 && d[i].indexOf("on this Behaviour") > -1 && d[i].indexOf("is missing!") > -1) cleanup = true;
-                else if (d[i].indexOf("Filename:  Line: ") > -1) cleanup = true;
-                else if (d[i].indexOf("A scripted object") > -1 && d[i].indexOf("has a different serialization layout when loading.") > -1) cleanup = true;
-                else if (d[i].indexOf("Did you #ifdef UNITY_EDITOR a section of your serialized properties in any of your scripts?") > -1) cleanup = true;
-                else if (d[i].indexOf("Action name") > -1 && d[i].indexOf("is not defined") > -1) cleanup = true;
-                else if (d[i].indexOf("ERROR: Shader") > -1 || d[i].indexOf("WARNING: Shader") > -1) cleanup = true;
-                else if (d[i].indexOf("There is no texture data available to upload") > -1) cleanup = true;
-                else if (d[i].indexOf("Fallback handler could not load library") > -1) cleanup = true;
-                else if (d[i].indexOf("No mesh data available for mesh") > -1) cleanup = true;
-                else if (d[i].indexOf("Couldn't create a Convex Mesh from source mesh") > -1) cleanup = true;
-                else if (d[i].indexOf("Unknown managed type referenced") > -1) cleanup = true;
-                else if (d[i].indexOf("If subshaders removal was intentional") > -1) cleanup = true;
-                else if (d[i].indexOf("shader is not supported on this GPU") > -1) cleanup = true;
+                if (this.server.config.cleanLogs) {
+                    if (d[i].indexOf("The referenced script") > -1 && d[i].indexOf("on this Behaviour") > -1 && d[i].indexOf("is missing!") > -1) cleanup = true;
+                    else if (d[i].indexOf("Filename:  Line: ") > -1) cleanup = true;
+                    else if (d[i].indexOf("A scripted object") > -1 && d[i].indexOf("has a different serialization layout when loading.") > -1) cleanup = true;
+                    else if (d[i].indexOf("Did you #ifdef UNITY_EDITOR a section of your serialized properties in any of your scripts?") > -1) cleanup = true;
+                    else if (d[i].indexOf("Action name") > -1 && d[i].indexOf("is not defined") > -1) cleanup = true;
+                    else if (d[i].indexOf("ERROR: Shader") > -1 || d[i].indexOf("WARNING: Shader") > -1) cleanup = true;
+                    else if (d[i].indexOf("There is no texture data available to upload") > -1) cleanup = true;
+                    else if (d[i].indexOf("Fallback handler could not load library") > -1) cleanup = true;
+                    else if (d[i].indexOf("No mesh data available for mesh") > -1) cleanup = true;
+                    else if (d[i].indexOf("Couldn't create a Convex Mesh from source mesh") > -1) cleanup = true;
+                    else if (d[i].indexOf("Unknown managed type referenced") > -1) cleanup = true;
+                    else if (d[i].indexOf("If subshaders removal was intentional") > -1) cleanup = true;
+                    else if (d[i].indexOf("shader is not supported on this GPU") > -1) cleanup = true;
+                    else if (d[i].indexOf("Trying to access a shader but no shaders were included") > -1) cleanup = true;
+                    else if (d[i].indexOf("does not support negative scale or size") > -1) cleanup = true;
+                    else if (d[i].indexOf("effective box size has been forced positive") > -1) cleanup = true;
+                    else if (d[i].indexOf("If you absolutely need to use negative scaling") > -1) cleanup = true;
+                }
                 if (cleanup == true && this.server.config.cleanLogs) continue;
                 this.verbose(d[i], new LP({ logType: "sdtout", cleanup: cleanup, color: 8 }));
             }

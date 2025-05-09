@@ -24,7 +24,11 @@ class requestServers extends message {
             //Create server
             if (!this.core.servers.has(server.id)) new Server(this.core, server);
             //Update the server config if it already exists
-            else this.core.servers.get(server.id).config.update(server);
+            else {
+                let s = this.core.servers.get(server.id);
+                s.config.update(server);
+                if (!s.configured) s.configure();
+            }
         });
 
         //Go though the servers folder and remove unclaimed folders

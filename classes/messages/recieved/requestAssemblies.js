@@ -1,18 +1,19 @@
 var message = require('../../message');
 
 
-class requestFiles extends message {
+class requestAssemblies extends message {
+
     requestId;
 
-    /** @type Array<import("../../file")> */
-    files;
+    /** @type Array<import("../../classes/assembly")> */
+    assemblies;
 
     error;
 
     constructor(main, data) {
         super(main);
         this.requestId = data.requestId;
-        this.files = data.files;
+        this.assemblies = data.assemblies;
         this.error = data.error;
     }
 
@@ -21,9 +22,9 @@ class requestFiles extends message {
             const request = this.main.requests.get(this.requestId);
             this.main.requests.delete(this.requestId);
             if (this.error != null) return request.reject(new Error(this.error));
-            request.resolve(this.files);
+            request.resolve(this.assemblies);
         }
     }
 }
 
-module.exports = requestFiles;
+module.exports = requestAssemblies;

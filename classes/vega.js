@@ -4,6 +4,7 @@ const message = require('./message.js');
 const { Client } = require("./socket");
 const auth = require("./messages/templates/auth");
 const RequestFiles = require("./messages/templates/requestFiles");
+const RequestAssemblies = require("./messages/templates/requestAssemblies");
 
 class pingSystem {
     pingInProgress = false;
@@ -67,6 +68,12 @@ class Vega {
 
     requests = new Map();
 
+    /** @type string */
+    apiKey = null;
+
+    /** @type number */
+    port = null;
+
     constructor(main) {
         this.main = main;
         fs.readdir(path.join(__dirname, "messages/recieved/"), (err, files) => (err == null ? files.forEach(file => this.addMessage(path.join(__dirname, "messages/recieved", file))) : this.main.error("Message parser config error: {error}", this.main.lp({error: err?.code || err?.message, stack: err?.stack}))) || this.connect());
@@ -122,6 +129,11 @@ class Vega {
 
     onClose () {
         this.connected = false;
+        this.port = null;
+        this.apiKey = null;
+        try {
+            this.main.servers.forEach(s => s.downloader.cancelAll());
+        } catch {}
         if (this.error == null) this.main.log("Vega connection lost", this.main.lp({consoleColor: 4}));
         this.pingSystem.stop();
         if (!this.stopping) setTimeout(this.connect.bind(this), 5000);
@@ -160,7 +172,7 @@ class Vega {
 
     requestFiles (label, serverId) {
         if (this.connected) {
-            this.main.log("Requesting files from Vega", this.main.lp({consoleColor: 5, server: serverId, label})); 
+            this.main.log("Requesting files from Vega", this.main.lp({consoleColor: 5, server: serverId, fileLabel: label})); 
             let id = this.requestId;
             let prom = {id};
             this.requests.set(id, prom);
@@ -168,6 +180,20 @@ class Vega {
             return this.promise(prom);
         } else {
             this.main.error("Failed to request files from Vega, not connected", this.main.lp({consoleColor: 4}));
+            return -1;
+        }
+    }
+
+    requestAssemblies (label, assemblies) {
+        if (this.connected) {
+            this.main.log("Requesting assemblies from Vega", this.main.lp({consoleColor: 5, fileLabel: label})); 
+            let id = this.requestId;
+            let prom = {id};
+            this.requests.set(id, prom);
+            this.send(new RequestAssemblies(this, label, assemblies, id));
+            return this.promise(prom);
+        } else {
+            this.main.error("Failed to request assemblies from Vega, not connected", this.main.lp({consoleColor: 4}));
             return -1;
         }
     }

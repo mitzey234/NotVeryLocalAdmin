@@ -266,6 +266,8 @@ module.exports.Settings = class Settings extends EventEmitter {
 
     clearLALogs = true;
 
+    maxConcurrentDownloads = 10;
+
     constructor(obj) {
       super();
       if (obj == null) {

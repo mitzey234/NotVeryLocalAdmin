@@ -1,6 +1,8 @@
 const crypto = require("crypto");
 const EventEmitter = require("events");
 const { exec } = require("child_process");
+const path = require("path");
+const fs = require("fs");
 
 function s(x,y){
     var pre = ['string' , 'number' , 'bool']
@@ -89,6 +91,9 @@ function generateId () {
     return crypto.randomBytes(8).toString("hex");
 }
 
+function md5 (path) {
+    return crypto.createHash('md5').update(fs.readFileSync(path)).digest('hex');
+}
 function cleanInput (args) {
     args = args.trim();
     args = args.split(" ");
@@ -175,6 +180,18 @@ function toInt32 (int) {
     return Buffer.from(arr2.join(""), "hex");
 }
 
+/**
+ * @param {string[]} array 
+ */
+function convertToPath (array) {
+    let p = "";
+    array.forEach((item, index) => {
+        if (index == 0) p = item;
+        else p = path.join(p, item);
+    });
+    return p;
+}
+
 function formatBytes(bytes) {
     if (bytes < 1000) return bytes + " B";
     else if (bytes < 1000000) return (bytes / 1000).toFixed(2) + " KB";
@@ -196,4 +213,6 @@ module.exports.runCommand = runCommand;
 module.exports.convertToMask = convertToMask;
 module.exports.SetEmitter = SetEmitter;
 module.exports.toInt32 = toInt32;
+module.exports.convertToPath = convertToPath;
 module.exports.formatBytes = formatBytes;
+module.exports.md5 = md5;

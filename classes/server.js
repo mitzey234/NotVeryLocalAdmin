@@ -12,6 +12,7 @@ const util = require("./util.js");
 const ServerHooks = require("./serverHooks.js");
 const { spawn } = require("child_process");
 const serverTimeouts = require('./serverTimeouts.js');
+const Downloader = require('./downloader.js');
 
 //TODO: File watchers that ONLY upload newly created files and ignore files that are defined in a .ignore file
 //TODO: We need to make a dedicated thread that will spawn the server process and handle all the IO so that we can spread the load and take it off the main process whenever theres a lot of data being sent by the server through stdio OR the net socket
@@ -31,6 +32,8 @@ class Server extends Module {
 
     restartCount = 0;
 
+    configured = false;
+
     get id() {
         return this.config.id;
     }
@@ -44,6 +47,7 @@ class Server extends Module {
      */
     constructor(core, config) {
         super(core);
+        this.stop = this.shutdown.bind(this);
         this.config = new ServerConfig(core, config);
         this.ioHandler = new StandardIOHandler(this);
         //TODO: Use this.config event emitter
@@ -51,6 +55,7 @@ class Server extends Module {
         this.monitor = new ServerMonitor(this);
         this.state = new serverState(this);
         this.hooks = new ServerHooks(this);
+        this.downloader = new Downloader(this);
         //TODO: Use this.state event emitter
 
         this.main.servers.set(this.id, this);
@@ -61,8 +66,7 @@ class Server extends Module {
     async init() {
         if (!this.installed) await this.installApplication();
         let result = await this.configure();
-
-        return;
+        console.log("Configured", result);
         if (this.config.autoStart && typeof result != "number") this.start();
     }
 
@@ -78,7 +82,7 @@ class Server extends Module {
         if (this.state.updating || this.state.installing) {
             this.steam.destroy();
         } else if (this.state.configuring) {
-            //TODO
+            this.downloader.cancelAll();
         }
         if (this.process == null) return -1;
         if (this.state.delayedRestart) {
@@ -141,12 +145,9 @@ class Server extends Module {
         steam.destroy();
     }
 
-    fileRequestError (e) {
-        this.log("File Request Error: {error}", this.main.lp({ error: e?.code || e?.message, stack: e?.stack }));
-        return null;
-    }
-
     async configure (){
+
+        this.downloader.cancelAll();
         
         /** @type {Array<import("./file")>} */
         let pluginConfigs = this.main.vega.requestFiles("pluginConfigs", this.id).catch(this.fileRequestError.bind(this));
@@ -162,9 +163,114 @@ class Server extends Module {
         serverConfigs = res[1];
         globalConfigs = res[2];
         if (pluginConfigs != null && serverConfigs != null && globalConfigs != null) {
-            
-            console.log(pluginConfigs[0], serverConfigs[0], globalConfigs);
+            for (let i in pluginConfigs) this.checkFile("pluginConfigs", pluginConfigs[i]);
+            for (let i in serverConfigs) this.checkFile("serverConfigs", serverConfigs[i]);
+            for (let i in globalConfigs) this.checkFile("globalConfigs", globalConfigs[i]);
+            let configs = await this.downloader.hook().catch(e => {
+                this.log("Failed to download files: {error}", this.main.lp({ error: e?.code || e?.message, stack: e?.stack }));
+                return -2;
+            });
+            if (typeof configs == "number") return configs; //Error downloading files
+
+            //TODO Delete files that don't belong
         } else return -1;
+
+        /** @type {Array<import("./assembly")>} */
+        let plugins = this.main.vega.requestAssemblies("plugins", this.config.plugins).catch(this.assemblyRequestError.bind(this));
+
+        /** @type {Array<import("./assembly")>} */
+        let dependancies = this.main.vega.requestAssemblies("dependencies", this.config.dependancies).catch(this.assemblyRequestError.bind(this));
+        
+        /** @type {Array<import("./assembly")>} */
+        let customAssemblies = this.main.vega.requestAssemblies("customAssemblies", this.config.customAssemblies).catch(this.assemblyRequestError.bind(this));
+
+        let res2 = await Promise.all([plugins, dependancies, customAssemblies]);
+        plugins = res2[0];
+        dependancies = res2[1];
+        customAssemblies = res2[2];
+
+        if (plugins != null && dependancies != null && customAssemblies != null) {
+            for (let i in plugins) this.checkAssembly("plugins", plugins[i]);
+            for (let i in dependancies) this.checkAssembly("dependencies", dependancies[i]);
+            for (let i in customAssemblies) this.checkAssembly("customAssemblies", customAssemblies[i]);
+
+            let assemblies = await this.downloader.hook().catch(e => {
+                this.log("Failed to download assemblies: {error}", this.main.lp({ error: e?.code || e?.message, stack: e?.stack }));
+                return -2;
+            });
+            if (typeof configs == "number") return assemblies; //Error downloading assemblies
+        }
+    }
+
+    update() {
+        //TODO Install app
+        //TODO Configure
+    }
+
+    fileRequestError (e) {
+        this.log("File Request Error: {error}", this.main.lp({ error: e?.code || e?.message, stack: e?.stack }));
+        return null;
+    }
+
+    assemblyRequestError (e) {
+        this.log("Assembly Request Error: {error}", this.main.lp({ error: e?.code || e?.message, stack: e?.stack }));
+        return null;
+    }
+
+    /**
+     * @param {string} label 
+     * @param {import("./file.js")} assembly 
+     * @returns 
+     */
+    checkFile (label, file) {
+        let folder;
+        if (label == "pluginConfigs") folder = this.paths.pluginConfigsFolderPath;
+        else if (label == "serverConfigs") folder = this.paths.serverConfigsFolder;
+        else if (label == "globalConfigs") folder = this.paths.globalDedicatedServerConfigFiles;
+        let fsPath = path.join(folder, util.convertToPath(file.path));
+
+        if (fs.existsSync(fsPath)) {
+            let md5;
+            try {
+                md5 = util.md5(fsPath);
+            } catch (e) {
+                this.log("Failed to calculate md5: {error}", this.main.lp({ error: e?.code || e?.message, stack: e?.stack }));
+                return null;
+            }
+            if (md5 == file.md5) return;
+            console.log("MD5", md5, file.md5, file);
+        }
+        this.log("File {file} not found or md5 mismatch, downloading", this.main.lp({ label: label, file: file.path, consoleColor: 4 }));
+        this.downloader.downloadFile(label, this.id, file.path, fsPath);
+    }
+
+    /**
+     * @param {string} label 
+     * @param {import("./assembly.js")} assembly 
+     * @returns 
+     */
+    checkAssembly (label, assembly) {
+        let folder;
+        if (label == "plugins") folder = this.paths.pluginsFolderPath;
+        else if (label == "customAssemblies") folder = this.paths.serverCustomAssembliesFolder;
+        else if (label == "dependencies") folder = this.paths.dependanciesFolderPath;
+        let fsPath = path.join(folder, assembly.name + ".dll");
+
+        console.log("Checking assembly", fsPath);
+
+        if (fs.existsSync(fsPath)) {
+            let md5;
+            try {
+                md5 = util.md5(fsPath);
+            } catch (e) {
+                this.log("Failed to calculate md5: {error}", this.main.lp({ error: e?.code || e?.message, stack: e?.stack }));
+                return null;
+            }
+            if (md5 == assembly.md5) return;
+            console.log("MD5", md5, assembly.md5, assembly);
+        }
+        this.log("Assembly {assembly} not found or md5 mismatch, downloading", this.main.lp({ label: label, assembly: assembly.name, consoleColor: 4 }));
+        this.downloader.downloadAssembly(label, assembly.name, fsPath);
     }
 
     async uninstall() {
