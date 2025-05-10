@@ -44,6 +44,8 @@ class ServerConfig extends EventEmitter {
 
   dailyRestarts = false;
 
+  watchForStart = true;
+
   /** @type RestartTime */
   restartTime = RestartTime;
 

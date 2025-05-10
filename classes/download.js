@@ -26,8 +26,8 @@ module.exports = class Download {
     start () {
         if (this.started) return;
         this.started = true;
-        if (this.type == "file") this.main.main.verbose("Starting download " + this.label + " from " + this.server + " path:" + this.path);
-        else this.main.main.verbose("Starting download of " + this.label + ":" + this.path);
+        if (this.type == "file") this.main.main.verbose("Starting download " + this.label + " from " + this.server + " path: " + this.path);
+        else this.main.main.verbose("Starting download of " + this.label + ": " + this.path);
         this.process = fork(__filename, {stdio: ['ignore', 'ignore', 'ignore', 'ipc']});
         this.process.on("message", this.onMessage.bind(this));
         this.process.on("exit", this.onExit.bind(this));

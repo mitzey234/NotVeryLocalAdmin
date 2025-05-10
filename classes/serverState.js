@@ -21,6 +21,7 @@ class ServerState extends EventEmitter {
     tps = -1;
     roundStartTime = -1;
     memory = -1;
+    downloadingCount = -1;
     /** fractional cpu usage */
     cpu = -1;
     

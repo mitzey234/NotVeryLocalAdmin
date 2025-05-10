@@ -258,10 +258,6 @@ module.exports.Settings = class Settings extends EventEmitter {
 
     criticalMemoryThreashold = 100000000;
 
-    serverStartTimeout = 60;
-
-    serverRestartReqTimeout = 3;
-
     uploadNewFiles = true;
 
     clearLALogs = true;

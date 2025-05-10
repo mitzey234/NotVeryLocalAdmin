@@ -1,5 +1,6 @@
 const util = require("./util.js");
 
+//TODO: Add all the handlers for all our settings
 module.exports = class SettingChangeHandler {
     /** @type {import("./server.js")} */
     Main;

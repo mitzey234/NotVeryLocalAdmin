@@ -5,6 +5,7 @@ const { Client } = require("./socket");
 const auth = require("./messages/templates/auth");
 const RequestFiles = require("./messages/templates/requestFiles");
 const RequestAssemblies = require("./messages/templates/requestAssemblies");
+const pack = require("../package.json");
 
 class pingSystem {
     pingInProgress = false;
@@ -172,7 +173,7 @@ class Vega {
 
     requestFiles (label, serverId) {
         if (this.connected) {
-            this.main.log("Requesting files from Vega", this.main.lp({consoleColor: 5, server: serverId, fileLabel: label})); 
+            this.main.log("Requesting files from Vega: {fileLabel}", this.main.lp({consoleColor: 5, server: serverId, fileLabel: label})); 
             let id = this.requestId;
             let prom = {id};
             this.requests.set(id, prom);
@@ -186,7 +187,7 @@ class Vega {
 
     requestAssemblies (label, assemblies) {
         if (this.connected) {
-            this.main.log("Requesting assemblies from Vega", this.main.lp({consoleColor: 5, fileLabel: label})); 
+            this.main.log("Requesting assemblies from Vega: {fileLabel}", this.main.lp({consoleColor: 5, fileLabel: label})); 
             let id = this.requestId;
             let prom = {id};
             this.requests.set(id, prom);

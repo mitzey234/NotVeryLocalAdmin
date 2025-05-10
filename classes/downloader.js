@@ -1,6 +1,7 @@
+const { EventEmitter } = require("steam-user");
 const Download = require("./download");
 
-module.exports = class Downloader {
+module.exports = class Downloader extends EventEmitter {
     /** @type import("./server") */
     main;
 
@@ -26,13 +27,18 @@ module.exports = class Downloader {
         return id;
     }
 
+    get count () {
+        return this.queue.size + this.inProgress.size;
+    }
+
     constructor(main) {
+        super();
         this.main = main;
         
     }
 
     hook () {
-        if (this.queue.length == 0 && this.inProgress.length == 0) return;
+        if (this.queue.size == 0 && this.inProgress.size == 0) return;
         let obj = {};
         this.promises.push(obj);
         return new Promise((resolve, reject) => {
@@ -42,6 +48,7 @@ module.exports = class Downloader {
     }
 
     complete() {
+        this.removeAllListeners("progress");
         if (this.errors.length > 0) {
             this.promises.forEach((obj) => obj.reject(new Error(this.errors.join(","))));
             this.promises = [];
@@ -53,6 +60,7 @@ module.exports = class Downloader {
     }
 
     processQueue () {
+        this.emit("progress", this.count);
         if (!this.main.main.vega.connected || this.key == null) return;
         if (this.inProgress.size == 0 && this.queue.size == 0) return this.complete();
         if (this.queue.size == 0 || this.inProgress.size >= this.main.main.settings.maxConcurrentDownloads) return;

@@ -15,6 +15,7 @@ const path = require('path');
 const VerkeyWatcher = require('./verkeyWatcher.js');
 const EchoServer = require('./echoServer.js');
 const MemoryMonitor = require('./memoryMonitor.js');
+const MachineOnStateUpdate = require('./messages/templates/machineOnStateUpdate.js');
 
 var verkeyPath = process.platform == "win32" ? path.join(process.env.APPDATA, "SCP Secret Laboratory", "verkey.txt") : path.join(process.env.HOME, ".config", "SCP Secret Laboratory", "verkey.txt");
 
@@ -106,7 +107,6 @@ module.exports.Main = class Main {
         this.verkeyWatcher = new VerkeyWatcher(this);
         this.interval = setInterval(this.update.bind(this), 1000);
         this.balancer = new Rebalancer(this);
-        this.updateInt = setInterval(() => this.update(), 1000);
         this.state = new MachineState();
         this.servers = new ServerMap(this);
         this.memoryMonitor = new MemoryMonitor(this);
@@ -117,17 +117,16 @@ module.exports.Main = class Main {
         this.vega = new Vega(this);
     }
     
-    async stop () {
-        //TODO: This needs to stop all servers and wait for them to exit
-        //TODO: This needs to force quit if called again
+    async stop (preserve = false) {
+        if (this.stopping && !preserve) return process.exit(0);
         clearInterval(this.interval);
         this.vega.stop();
         this.stopping = true;
         this.SettingChangeHandler.disabled = true;
-        this.servers.forEach(server => server.shutdown());
+        this.servers.forEach(server => server.shutdown(true));
         while ([...this.servers.values()].filter(server => server.process != null).length > 0) await Util.Delay(1);
         this.logger.stop();
-        process.exit(0);
+        if (!preserve) process.exit(0);
     }
 
     getServer (hint) {
@@ -147,7 +146,6 @@ module.exports.Main = class Main {
     }
 
     async restart () {
-        //TODO: This needs to stop all servers and wait for them to exit
         await this.stop(true);
         if (this.daemonMode) {
             process.exit(6);
@@ -167,7 +165,7 @@ module.exports.Main = class Main {
 
     onStateUpdate (data) {
         if (data.value === data.old) return;
-        //TODO: Send to vega
+        this.vega?.send(new MachineOnStateUpdate(this.vega, data));
     }
 
     previousTime = Date.now();
@@ -214,7 +212,7 @@ module.exports.Main = class Main {
     }
 
     updateSystemCPU() {
-        os.cpuUsage((v) => this.state.systemCPU = Math.floor(v*10000)/100);
+        os.cpuUsage((v) => this.state.systemCPU = Math.round(v*100));
     }
 
     updateCPU() {

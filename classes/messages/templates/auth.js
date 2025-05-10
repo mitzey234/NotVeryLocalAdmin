@@ -1,4 +1,5 @@
 const message = require('../../message');
+const pack = require('../../../package.json');
 
 class auth extends message {
     id;
@@ -11,6 +12,8 @@ class auth extends message {
 
     state;
 
+    version;
+
     constructor(main) {
         super(main);
         this.core.servers.forEach((server, id) => {
@@ -21,6 +24,7 @@ class auth extends message {
         this.label = this.core.settings.Vega.label;
         this.id = this.core.settings.Vega.id;
         this.state = this.core.state.toObject();
+        this.version = pack.version;
     }
 
 }

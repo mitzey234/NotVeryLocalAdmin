@@ -5,15 +5,12 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "type": "node",
+            "type": "node-terminal",
+            "command": "npm start",
             "request": "launch",
-            "name": "Launch Program",
-            "skipFiles": [
-                "<node_internals>/**"
-            ],
+            "name": "Run npm start",
             "outputCapture": "std",
-            "program": "${workspaceFolder}/index.js",
-            "args": ["-skipsteam "]
+            "nodeVersionHint": 18
         }
     ]
 }

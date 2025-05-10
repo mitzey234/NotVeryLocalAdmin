@@ -13,6 +13,7 @@ const ServerHooks = require("./serverHooks.js");
 const { spawn } = require("child_process");
 const serverTimeouts = require('./serverTimeouts.js');
 const Downloader = require('./downloader.js');
+const ServerOnStateUpdate = require('./messages/templates/serverOnStateUpdate.js');
 
 //TODO: File watchers that ONLY upload newly created files and ignore files that are defined in a .ignore file
 //TODO: We need to make a dedicated thread that will spawn the server process and handle all the IO so that we can spread the load and take it off the main process whenever theres a lot of data being sent by the server through stdio OR the net socket
@@ -56,7 +57,7 @@ class Server extends Module {
         this.state = new serverState(this);
         this.hooks = new ServerHooks(this);
         this.downloader = new Downloader(this);
-        //TODO: Use this.state event emitter
+        this.state.on("set", this.onStateUpdate.bind(this));
 
         this.main.servers.set(this.id, this);
         this.init();
@@ -66,7 +67,6 @@ class Server extends Module {
     async init() {
         if (!this.installed) await this.installApplication();
         let result = await this.configure();
-        console.log("Configured", result);
         if (this.config.autoStart && typeof result != "number") this.start();
     }
 
@@ -99,6 +99,8 @@ class Server extends Module {
     }
 
     async installApplication() {
+        if (this.state.installing) return -1; //Server is already installing
+        if (this.state.starting) return -2; //Server is already updating
         this.state.installing = true;
         let steam = new Steam(this.main.settings.Steam.toObject());
         this.steam = steam;
@@ -127,6 +129,7 @@ class Server extends Module {
 
         if (steam.state != States.Ready) {
             this.error("Steam was not ready when hook was triggered, cannot install application");
+            this.state.error = "Steam was not ready for download";
             this.state.installing = false;
             this.state.percent = -1;
             this.state.steam = null;
@@ -138,6 +141,12 @@ class Server extends Module {
             this.log("Download complete", this.main.lp({ consoleColor: 2 }));
         } catch (e) {
             this.error("Failed to download application: {error}", this.main.lp({ error: e?.code || e?.message, stack: e?.stack }));
+            this.state.error = "Failed to download application";
+            this.state.installing = false;
+            this.state.percent = -1;
+            this.state.steam = null;
+            steam.destroy();
+            return -2;
         }
         this.state.installing = false;
         this.state.percent = -1;
@@ -145,8 +154,10 @@ class Server extends Module {
         steam.destroy();
     }
 
-    async configure (){
-
+    async configure () {
+        if (this.state.configuring) return -1; //Server is already configuring
+        if (this.state.starting) return -2; //Server is starting
+        this.state.configuring = true;
         this.downloader.cancelAll();
         
         /** @type {Array<import("./file")>} */
@@ -162,18 +173,32 @@ class Server extends Module {
         pluginConfigs = res[0];
         serverConfigs = res[1];
         globalConfigs = res[2];
-        if (pluginConfigs != null && serverConfigs != null && globalConfigs != null) {
+        if (pluginConfigs != null && serverConfigs != null && globalConfigs != null && typeof pluginConfigs != "number" && typeof serverConfigs != "number" && typeof globalConfigs != "number") {
             for (let i in pluginConfigs) this.checkFile("pluginConfigs", pluginConfigs[i]);
             for (let i in serverConfigs) this.checkFile("serverConfigs", serverConfigs[i]);
             for (let i in globalConfigs) this.checkFile("globalConfigs", globalConfigs[i]);
-            let configs = await this.downloader.hook().catch(e => {
+
+            this.state.downloadingCount = this.downloader.count;
+            this.downloader.on("progress", () => this.state.downloadingCount = this.downloader.count); 
+            
+            let configs = await this.downloader.hook()?.catch(e => {
                 this.log("Failed to download files: {error}", this.main.lp({ error: e?.code || e?.message, stack: e?.stack }));
+                this.state.error = "Failed to download files";
                 return -2;
             });
-            if (typeof configs == "number") return configs; //Error downloading files
-
-            //TODO Delete files that don't belong
-        } else return -1;
+            this.state.downloadingCount = -1;
+            if (typeof configs == "number") {
+                this.state.configuring = false;
+                return configs; //Error downloading files
+            }
+            
+            this.cleanFolder(this.paths.pluginConfigsFolderPath, pluginConfigs);
+            this.cleanFolder(this.paths.serverConfigsFolder, serverConfigs);
+            this.cleanFolder(this.paths.globalDedicatedServerConfigFiles, globalConfigs);
+        } else {
+            this.state.configuring = false;
+            return -1;
+        }
 
         /** @type {Array<import("./assembly")>} */
         let plugins = this.main.vega.requestAssemblies("plugins", this.config.plugins).catch(this.assemblyRequestError.bind(this));
@@ -189,22 +214,39 @@ class Server extends Module {
         dependancies = res2[1];
         customAssemblies = res2[2];
 
-        if (plugins != null && dependancies != null && customAssemblies != null) {
+        if (plugins != null && dependancies != null && customAssemblies != null && typeof plugins != "number" && typeof dependancies != "number" && typeof customAssemblies != "number") {
             for (let i in plugins) this.checkAssembly("plugins", plugins[i]);
             for (let i in dependancies) this.checkAssembly("dependencies", dependancies[i]);
             for (let i in customAssemblies) this.checkAssembly("customAssemblies", customAssemblies[i]);
 
-            let assemblies = await this.downloader.hook().catch(e => {
+            this.state.downloadingCount = this.downloader.count;
+            this.downloader.on("progress", () => this.state.downloadingCount = this.downloader.count); 
+
+            let assemblies = await this.downloader.hook()?.catch(e => {
                 this.log("Failed to download assemblies: {error}", this.main.lp({ error: e?.code || e?.message, stack: e?.stack }));
+                this.state.error = "Failed to download assemblies";
                 return -2;
             });
-            if (typeof configs == "number") return assemblies; //Error downloading assemblies
+            this.state.downloadingCount = -1;
+            if (typeof configs == "number") {
+                this.state.configuring = false;
+                return assemblies; //Error downloading assemblies
+            }
+            this.cleanAssemblies(this.paths.pluginsFolderPath, plugins);
+            this.cleanAssemblies(this.paths.dependanciesFolderPath, dependancies);
         }
+        this.state.configuring = false;
     }
 
-    update() {
-        //TODO Install app
-        //TODO Configure
+    async update() {
+        if (this.state.updating) return -1; //Server is already updating
+        if (this.state.installing) return -2; //Server is already installing
+        if (this.state.configuring) return -3; //Server is already configuring
+        if (this.state.starting) return -4; //Server is starting
+        var result = await this.installApplication();
+        if (typeof result == "number") return result; //Error installing application
+        result = await this.configure();
+        if (typeof result == "number") return result; //Error configuring server
     }
 
     fileRequestError (e) {
@@ -238,7 +280,7 @@ class Server extends Module {
                 return null;
             }
             if (md5 == file.md5) return;
-            console.log("MD5", md5, file.md5, file);
+            //console.log("MD5", md5, file.md5, file);
         }
         this.log("File {file} not found or md5 mismatch, downloading", this.main.lp({ label: label, file: file.path, consoleColor: 4 }));
         this.downloader.downloadFile(label, this.id, file.path, fsPath);
@@ -256,8 +298,6 @@ class Server extends Module {
         else if (label == "dependencies") folder = this.paths.dependanciesFolderPath;
         let fsPath = path.join(folder, assembly.name + ".dll");
 
-        console.log("Checking assembly", fsPath);
-
         if (fs.existsSync(fsPath)) {
             let md5;
             try {
@@ -267,10 +307,61 @@ class Server extends Module {
                 return null;
             }
             if (md5 == assembly.md5) return;
-            console.log("MD5", md5, assembly.md5, assembly);
+            //console.log("MD5", md5, assembly.md5, assembly);
         }
         this.log("Assembly {assembly} not found or md5 mismatch, downloading", this.main.lp({ label: label, assembly: assembly.name, consoleColor: 4 }));
         this.downloader.downloadAssembly(label, assembly.name, fsPath);
+    }
+
+    /**
+     * @param {string} folder 
+     * @param {Array<import("./file.js")>} expected 
+     * @param {Array<string>} track 
+     * @returns 
+     */
+    cleanFolder (folder, expected, track = []) {
+        if (!fs.existsSync(folder)) return this.log("Path does not exist: {path}", this.main.lp({ path: folder }));
+        const files = fs.readdirSync(folder, { withFileTypes: true });
+        for (const file of files) {
+            const name = file.name;
+            const filePath = path.join(folder, name);
+            if (file.isDirectory()) {
+                this.cleanFolder(filePath, expected, [...track, name]); // Recursively clean subfolders
+            } else {
+                track.push(name);
+                if (expected.find(f => util.convertToPath(f.path) == util.convertToPath(track)) != null) return;
+                this.log("Unexpected item, deleting: {filePath}", this.main.lp({ filePath: filePath }));
+                try {
+                    fs.rmSync(filePath, { recursive: true, force: true });
+                } catch (e) {
+                    this.error("Failed to delete: {filePath}\n{e}", this.main.lp({ filePath: filePath, e: e }));
+                }
+                track.pop(); // Remove the file from the track
+            }
+        }
+    }
+
+    /**
+     * @param {string} path 
+     * @param {Array<import("./assembly.js")>} expected 
+     * @returns 
+     */
+    cleanAssemblies (folder, expected) {
+        if (!fs.existsSync(folder)) return this.log("Path does not exist: {path}", this.main.lp({ path: folder }));
+        const files = fs.readdirSync(folder);
+        for (const file of files) {
+            if (file.endsWith(".dll")) {
+                const filePath = path.join(folder, file);
+                if (!expected.some(assembly => assembly.name + ".dll" === file)) {
+                    this.log("Unexpected assembly found, deleting: {filePath}", this.main.lp({ filePath: filePath }));
+                    try {
+                        fs.unlinkSync(filePath);
+                    } catch (e) {
+                        this.error("Failed to delete assembly: {filePath}\n{e}", this.main.lp({ filePath: filePath, e: e }));
+                    }
+                }
+            }
+        }
     }
 
     async uninstall() {
@@ -397,7 +488,7 @@ class Server extends Module {
             this.timeout = null;
         }
 
-        this.timeout = setTimeout(serverTimeouts.startTimeout.bind(this), 1000 * this.config.maximumStartupTime);
+        if (this.config.watchForStart) this.timeout = setTimeout(serverTimeouts.startTimeout.bind(this), 1000 * this.config.maximumStartupTime);
         return this.hooks.promise("start");
     }
 
@@ -437,6 +528,11 @@ class Server extends Module {
         }
     }
 
+    onStateUpdate (data) {
+        if (data.value == data.old) return;
+        this.main.vega.send(new ServerOnStateUpdate(this.main.vega, this.id, data));
+    }
+
     async OnUpdate() {
         if (this.config.dailyRestarts && new Date().getHours() == this.config.restartTime.hour && new Date().getMinutes() == this.config.restartTime.minute) {
             let date = ((new Date().getMonth()) + "-" + (new Date().getDate()));
@@ -462,12 +558,14 @@ class Server extends Module {
 
     async handleExit(code, signal) {
         this.log("Server Process Exited with {code} - {signal}", this.main.lp({ code: code, signal: signal, color: 4 }));
-        this.serverMonitor.enabled = false;
+        this.monitor.enabled = false;
         this.fullReset();
         if (this.timeout != null) {
             clearTimeout(this.timeout);
             this.timeout = null;
         }
+        this.hooks.resolve("shutdown");
+        this.hooks.resolve("restart");
         if (this.state.transfering && this.main.activeTransfers.has(this.config.id) && this.main.activeTransfers.get(this.config.id).direction == "source") {
             this.log("Server Transfering", this.main.lp({ color: 2 }));
             this.state.transfering = false;
@@ -482,7 +580,6 @@ class Server extends Module {
             this.state.restarting = false;
             if (this.state.starting) this.hooks.resolve("start", -9); //User Canceled
             this.state.starting = false;
-            this.hooks.resolve("stop");
             return;
         }
         if (this.state.restarting) {
@@ -490,7 +587,6 @@ class Server extends Module {
             this.log("Server Restarting", this.main.lp({ color: 2 }));
             this.state.restarting = false;
             this.state.starting = false;
-            this.hooks.resolve("restart");
             this.start().catch(() => { });
             return;
         }
@@ -504,7 +600,8 @@ class Server extends Module {
                 return;
             }
             this.restartCount = 0;
-            this.hooks.reject("start", "Startup failure: " + code + " - " + signal);
+            this.state.error = "Server does not complete startup";
+            this.hooks.resolve("start", -4);
             return;
         }
         this.error("Unexpected server death, Exited with {code} - {signal}", this.main.lp({ code: code, signal: signal }));
@@ -513,7 +610,8 @@ class Server extends Module {
 
     async handleError(e) {
         this.error("Error launching server: {e}", this.main.lp({ e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e }));
-        this.hooks.reject("start", "Startup error: " + e.code);
+        this.state.error = "Error launching server";
+        this.hooks.resolve("start", -5);
     }
 
     fullReset() {

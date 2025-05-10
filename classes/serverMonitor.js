@@ -1,6 +1,7 @@
 const LP = require("./logging").LP;
+const Module = require("./module");
 
-class ServerMonitor {
+class ServerMonitor extends Module {
     /** @type import("./server") */
     server;
 
@@ -8,11 +9,8 @@ class ServerMonitor {
      * @param {import("./server")} s 
      */
     constructor(s) {
+        super(s.main);
         this.server = s;
-        this.verbose = this.server.verbose;
-        this.log = this.server.log;
-        this.error = this.server.error;
-        this.warn = this.server.warn;
     }
 
     /** @type boolean */

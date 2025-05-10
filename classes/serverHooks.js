@@ -16,13 +16,14 @@ module.exports = class ServerHooks {
     }
 
     resolve (hookName, value) {
+        if (this[hookName] == null) return this.main.warn(`Hook ${hookName} does not exist`);
         if (this[hookName].length > 0) {
             this[hookName].forEach(hook => {
                 hook.resolve(value);
             });
             this[hookName] = [];
         } else {
-            this.main.warn(`No hooks to resolve for ${hookName}`);
+            this.main.verbose(`No hooks to resolve for ${hookName}`);
         }
     }
 
@@ -33,7 +34,7 @@ module.exports = class ServerHooks {
             });
             this[hookName] = [];
         } else {
-            this.main.warn(`No hooks to reject for ${hookName}`);
+            this.main.verbose(`No hooks to reject for ${hookName}`);
         }
     }
 
