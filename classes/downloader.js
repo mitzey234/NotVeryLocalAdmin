@@ -48,7 +48,6 @@ module.exports = class Downloader extends EventEmitter {
     }
 
     complete() {
-        this.removeAllListeners("progress");
         if (this.errors.length > 0) {
             this.promises.forEach((obj) => obj.reject(new Error(this.errors.join(","))));
             this.promises = [];

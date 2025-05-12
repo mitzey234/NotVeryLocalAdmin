@@ -21,4 +21,9 @@ module.exports = {
         this.timeout = null;
         this.process.kill();
     },
+    stopTimeout: function () {
+        this.error("{label} Shutdown took too long, forcing", {label: this.config.label});
+        this.timeout = null;
+        this.process.kill();
+    }
 }

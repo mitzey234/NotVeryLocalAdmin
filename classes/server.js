@@ -57,6 +57,7 @@ class Server extends Module {
         this.state = new serverState(this);
         this.hooks = new ServerHooks(this);
         this.downloader = new Downloader(this);
+        this.downloader.on("progress", () => this.state.downloadingCount = this.downloader.count); 
         this.state.on("set", this.onStateUpdate.bind(this));
 
         this.main.servers.set(this.id, this);
@@ -102,6 +103,7 @@ class Server extends Module {
         if (this.state.installing) return -1; //Server is already installing
         if (this.state.starting) return -2; //Server is already updating
         this.state.installing = true;
+        this.log("Installing application", this.main.lp({ consoleColor: 4 }));
         let steam = new Steam(this.main.settings.Steam.toObject());
         this.steam = steam;
         steam.on("login", () => this.log("Logged in to steam"));
@@ -158,6 +160,7 @@ class Server extends Module {
         if (this.state.configuring) return -1; //Server is already configuring
         if (this.state.starting) return -2; //Server is starting
         this.state.configuring = true;
+        this.log("Configuring server", this.main.lp({ consoleColor: 4 }));
         this.downloader.cancelAll();
         
         /** @type {Array<import("./file")>} */
@@ -179,7 +182,6 @@ class Server extends Module {
             for (let i in globalConfigs) this.checkFile("globalConfigs", globalConfigs[i]);
 
             this.state.downloadingCount = this.downloader.count;
-            this.downloader.on("progress", () => this.state.downloadingCount = this.downloader.count); 
             
             let configs = await this.downloader.hook()?.catch(e => {
                 this.log("Failed to download files: {error}", this.main.lp({ error: e?.code || e?.message, stack: e?.stack }));
@@ -220,7 +222,6 @@ class Server extends Module {
             for (let i in customAssemblies) this.checkAssembly("customAssemblies", customAssemblies[i]);
 
             this.state.downloadingCount = this.downloader.count;
-            this.downloader.on("progress", () => this.state.downloadingCount = this.downloader.count); 
 
             let assemblies = await this.downloader.hook()?.catch(e => {
                 this.log("Failed to download assemblies: {error}", this.main.lp({ error: e?.code || e?.message, stack: e?.stack }));
@@ -235,6 +236,7 @@ class Server extends Module {
             this.cleanAssemblies(this.paths.pluginsFolderPath, plugins);
             this.cleanAssemblies(this.paths.dependanciesFolderPath, dependancies);
         }
+        this.configured = true;
         this.state.configuring = false;
     }
 
@@ -243,6 +245,7 @@ class Server extends Module {
         if (this.state.installing) return -2; //Server is already installing
         if (this.state.configuring) return -3; //Server is already configuring
         if (this.state.starting) return -4; //Server is starting
+        this.log("Updating server", this.main.lp({ consoleColor: 4 }));
         var result = await this.installApplication();
         if (typeof result == "number") return result; //Error installing application
         result = await this.configure();
@@ -382,14 +385,14 @@ class Server extends Module {
     async shutdown(force = false) {
         if (this.process == null) return -1; //Server process not active
         if ((this.state.stopping && !this.state.delayedStop) || (this.state.starting)) {
-            this.log("Killing server {label}", this.main.lp({ label: this.config.label, consoleColor: 6 }));
+            this.log("Killing server", this.main.lp({ consoleColor: 6 }));
             if (this.state.starting == true) {
                 this.state.starting = false;
                 this.state.stopping = true;
             }
             this.process.kill(9);
-        } else if (this.state.delayedStop || (!this.state.stopping && this.state.players != null && this.state.players.length <= 0) || force) {
-            this.log("Force Stopping server {label}", this.main.lp({ label: this.config.label, consoleColor: 6 }));
+        } else if (this.state.delayedStop || (!this.state.stopping && this.state.players <= 0) || force) {
+            this.log("Force Stopping server", this.main.lp({ consoleColor: 6 }));
             this.state.delayedStop = false;
             this.state.stopping = true;
             this.command("stop");
@@ -397,17 +400,17 @@ class Server extends Module {
                 clearTimeout(this.timeout);
                 this.timeout = null;
             }
-            this.timeout = setTimeout(this.stopTimeout.bind(this), 1000 * this.config.maximumShutdownTime);
-        } else if (!this.state.stopping && this.state.players != null && this.state.players.length > 0) {
-            this.log("Stopping server {label} Delayed", this.main.lp({ label: this.config.label, consoleColor: 6 }));
+            this.timeout = setTimeout(serverTimeouts.stopTimeout.bind(this), 1000 * this.config.maximumShutdownTime);
+        } else if (!this.state.stopping && this.state.players > 0) {
+            this.log("Stopping server Delayed", this.main.lp({ consoleColor: 6 }));
             this.command("snr");
         }
         return this.hooks.promise("shutdown");
     }
 
     async start() {
+        if (this.state.starting) return this.hooks.promise("start"); //Server is already starting
         if (this.process != null) return -1; //Server process already active
-        if (this.state.starting) return -2; //Server is already starting
         if (this.state.installing) return -3; //Server is installing
         if (this.state.updating) return -4; //Server is updating
         if (this.state.configuring) return -5; //Server is configuring
@@ -419,7 +422,7 @@ class Server extends Module {
             this.state.error = "System memory too low";
             return -11; //Machine memory is too low to start the server
         }
-        this.log("Starting server {label}", this.main.lp({ label: this.config.label }));
+        this.log("Starting server", this.main.lp({ consoleColor: 4 }));
 
         this.monitor.enabled = true;
         this.fullReset();
@@ -498,8 +501,8 @@ class Server extends Module {
         if (this.state.starting) return -3; //Server restarting
         if (this.state.uninstalling) return -5; //Server uninstalling
         if (this.state.delayedStop) this.command("snr");
-        if (this.state.delayedRestart || (!this.state.restarting && this.state.players != null && this.state.players.length <= 0) || forced) {
-            this.log("Force Restarting server {label}", this.main.lp({ label: this.config.label, color: 6 }));
+        if (this.state.delayedRestart || (!this.state.restarting && this.state.players <= 0) || forced) {
+            this.log("Force Restarting server", this.main.lp({ color: 6 }));
             this.state.delayedRestart = false;
             this.state.restarting = true;
             this.command("softrestart");
@@ -508,8 +511,8 @@ class Server extends Module {
                 this.timeout = null;
             }
             this.timeout = setTimeout(serverTimeouts.restart.bind(this), 1000 * this.config.maximumRestartTime);
-        } else if (!this.state.restarting && this.state.players != null && this.state.players.length > 0 && this.timeout == null) {
-            this.log("Restarting server {label} delayed", this.main.lp({ label: this.config.label, color: 6 }));
+        } else if (!this.state.restarting && this.state.players > 0 && this.timeout == null) {
+            this.log("Restarting server delayed", this.main.lp({ color: 6 }));
             this.command("rnr");
             this.timeout = setTimeout(serverTimeouts.delayedRestart.bind(this), 2000);
         }
@@ -519,7 +522,7 @@ class Server extends Module {
     command(command, nolog = false) {
         if (this.process == null || this.ioHandler.connectionToServer == null) return -1;
         command = command.trim();
-        if (!nolog) this.log("Sending command: {command}", this.main.lp({ command: command, consoleColor: 2 }), nolog);
+        if (!nolog) this.log("Sending command: {command}", this.main.lp({ command: command, consoleColor: 2 }));
         try {
             this.ioHandler.connectionToServer.write(Buffer.concat([util.toInt32(command.length), Buffer.from(command)]));
         } catch (e) {

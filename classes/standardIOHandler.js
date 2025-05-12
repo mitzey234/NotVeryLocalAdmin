@@ -138,10 +138,10 @@ class StandardIOHandler {
             if (this.server.state.delayedRestart) this.server.state.delayedRestart = false;
             if (this.server.state.stopping && this.server.state.delayedStop) {
                 this.server.state.delayedStop = false;
-                this.hooks.resolve("stop", -9); //User cancelled
+                this.server.hooks.resolve("shutdown", -9); //User cancelled
             } else if (this.server.state.stopping && !this.server.state.delayedStop) {
                 this.server.state.delayedStop = false;
-                this.hooks.resolve("stop", -9); //User cancelled
+                this.server.hooks.resolve("shutdown", -9); //User cancelled
             } else {
                 this.server.state.stopping = true;
                 this.server.state.delayedStop = true;
@@ -151,10 +151,10 @@ class StandardIOHandler {
             if (this.server.state.delayedStop) this.server.state.delayedStop = false;
             if (this.server.state.restarting && this.server.state.delayedRestart) {
                 this.server.state.delayedRestart = false;
-                this.hooks.resolve("restart", -9); //User cancelled
+                this.server.hooks.resolve("restart", -9); //User cancelled
             } else if (this.server.state.restarting && !this.server.state.delayedRestart) {
                 this.server.state.delayedRestart = false;
-                this.hooks.resolve("restart", -9); //User cancelled
+                this.server.hooks.resolve("restart", -9); //User cancelled
             } else {
                 this.server.state.restarting = true;
                 this.server.state.delayedRestart = true;
