@@ -35,6 +35,8 @@ class Server extends Module {
 
     configured = false;
 
+    lastModified = 0;
+
     get id() {
         return this.config.id;
     }
@@ -314,6 +316,48 @@ class Server extends Module {
         }
         this.log("Assembly {assembly} not found or md5 mismatch, downloading", this.main.lp({ label: label, assembly: assembly.name, consoleColor: 4 }));
         this.downloader.downloadAssembly(label, assembly.name, fsPath);
+    }
+
+    fileEvent (event, folderLabel, file) {
+        //this.log("File event: {event} {folderLabel} {file}", this.main.lp({ event: event, folderLabel: folderLabel, file: file }));
+        if (event == "remove") {
+            this.log("File {file} removed from {folderLabel}", this.main.lp({ file: file.path, folderLabel: folderLabel, consoleColor: 4 }));
+            let folder;
+            if (folderLabel == "pluginConfigs") folder = this.paths.pluginConfigsFolderPath;
+            else if (folderLabel == "serverConfigs") folder = this.paths.serverConfigsFolder;
+            else if (folderLabel == "globalConfigs") folder = this.paths.globalDedicatedServerConfigFiles;
+            let fsPath = path.join(folder, util.convertToPath(file.path));
+            if (fs.existsSync(fsPath)) {
+                try {
+                    fs.rmSync(fsPath, { recursive: true, force: true });
+                } catch (e) {
+                    this.error("Failed to delete file: {file}\n{e}", this.main.lp({ file: fsPath, e: e }));
+                }
+            }
+        } else {
+            this.checkFile(folderLabel, file);
+        }
+    }
+
+    assemblyEvent (event, label, assembly) {
+        //this.log("Assembly event: {event} {label} {assembly}", this.main.lp({ event: event, label: label, assembly: assembly }));
+        if (event == "remove") {
+            this.log("Assembly {assembly} removed from {label}", this.main.lp({ assembly: assembly.name, label: label, consoleColor: 4 }));
+            let folder;
+            if (label == "plugins") folder = this.paths.pluginsFolderPath;
+            else if (label == "customAssemblies") folder = this.paths.serverCustomAssembliesFolder;
+            else if (label == "dependencies") folder = this.paths.dependanciesFolderPath;
+            let fsPath = path.join(folder, assembly.name + ".dll");
+            if (fs.existsSync(fsPath)) {
+                try {
+                    fs.rmSync(fsPath, { recursive: true, force: true });
+                } catch (e) {
+                    this.error("Failed to delete assembly: {assembly}\n{e}", this.main.lp({ assembly: fsPath, e: e }));
+                }
+            }
+        } else {
+            this.checkAssembly(label, assembly);
+        }
     }
 
     /**

@@ -22,13 +22,15 @@ class requestServers extends message {
         //Add servers from config
         this.servers.forEach(server => {
             //Create server
-            if (!this.core.servers.has(server.id)) new Server(this.core, server);
+            let s;
+            if (!this.core.servers.has(server.id)) s = new Server(this.core, server);
             //Update the server config if it already exists
             else {
-                let s = this.core.servers.get(server.id);
+                s = this.core.servers.get(server.id);
                 s.config.update(server);
-                if (!s.configured) s.configure();
+                if (!s.configured || s.lastModified != server.lastModified) s.configure();
             }
+            s.lastModified = server.lastModified;
         });
 
         //Go though the servers folder and remove unclaimed folders
