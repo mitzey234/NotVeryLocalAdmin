@@ -25,6 +25,7 @@ class auth extends message {
         this.id = this.core.settings.Vega.id;
         this.state = this.core.state.toObject();
         this.version = pack.version;
+        
     }
 
 }

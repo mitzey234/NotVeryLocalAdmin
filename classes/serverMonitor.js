@@ -130,7 +130,7 @@ class ServerMonitor extends Module {
         if (!this.server.state.running) return;
         this.error("Failed to check server, NVLA Monitor timed out {count}", new LP({count: this.checkTimeoutCount, color: 4 }));
         this.checkTimeoutCount++;
-        if (this.checkTimeoutCount >= this.config.maximumServerUnresponsiveTime / 8) {
+        if (this.checkTimeoutCount >= this.server.config.maximumServerUnresponsiveTime / 8) {
             this.error("Server is unresponsive, restarting", new LP({ color: 4 }));
             this.server.state.restarting = true;
             this.process.kill(9);

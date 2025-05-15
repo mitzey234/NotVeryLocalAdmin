@@ -64,6 +64,8 @@ class Vega {
 
     connected = false;
 
+    restarting = true;
+
     /** @type pingSystem */
     pingSystem;
 
@@ -93,8 +95,20 @@ class Vega {
         return id;
     }
 
+    restart () {
+        this.restarting = true;
+        if (this.connected) {
+            try {
+                this.socket.destroy();
+            } catch (e) {
+                this.main.error("Error restarting Vega: {error}", this.main.lp({error: e?.code || e?.message, stack: e?.stack}));
+            }
+        }
+    }
+
     connect() {
         if (this.connected) return;
+        this.restarting = false;
         this.stopping = false;
         this.main.log("Connecting to Vega", this.main.lp({consoleColor: 5}));
         this.error = null;
@@ -137,7 +151,9 @@ class Vega {
         } catch {}
         if (this.error == null) this.main.log("Vega connection lost", this.main.lp({consoleColor: 4}));
         this.pingSystem.stop();
-        if (!this.stopping) setTimeout(this.connect.bind(this), 5000);
+        if (!this.stopping && !this.restarting) setTimeout(this.connect.bind(this), 5000);
+        else if (this.restarting) this.connect();
+        this.restarting = false;
     }
 
     onConnect () {

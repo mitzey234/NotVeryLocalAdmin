@@ -3,6 +3,7 @@ const chokidar = require("chokidar");
 const EventEmitter = require("events");
 const LP = require("./logging").LP;
 var verkeyPath = process.platform == "win32" ? path.join(process.env.APPDATA, "SCP Secret Laboratory", "verkey.txt") : path.join(process.env.HOME, ".config", "SCP Secret Laboratory", "verkey.txt");
+const VerkeyUpdate = require("./messages/templates/verkeyUpdate");
 
 class VerkeyWatcher extends EventEmitter {
 
@@ -20,9 +21,9 @@ class VerkeyWatcher extends EventEmitter {
     async userSCPSLAppdateUpdate(event, filePath) {
         if (this.main.stopping) return;
         filePath = path.relative(path.parse(verkeyPath).dir, filePath);
-        if (path.parse(filePath).ext != ".txt" || path.parse(filePath).name != "verkey") return;
+        if (path.parse(filePath).ext != path.parse(verkeyPath).ext || path.parse(filePath).name != path.parse(verkeyPath).name) return;
         this.emit("update", this.main.verkey);
-        //TODO: Send verkey updates to vega
+        this.main.vega.send(new VerkeyUpdate(this.main.vega, this.main.verkey));
         this.main.log("File event: {event} {filePath}", new LP({ event: event, filePath: filePath }, { color: 6 }));
     }
 }

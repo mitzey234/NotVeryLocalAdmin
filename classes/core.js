@@ -37,19 +37,15 @@ class ServerMap extends Map {
      */
     set (serverId, server) {
         super.set(serverId, server);
-        //TODO: Send to vega
     }
   
     /**
      * @param {string} serverId 
      */
     delete (serverId) {
-        //TODO: This needs to be handled specially
         if (!this.has(serverId)) return;
         let server = this.get(serverId);
-        server.stop();
-        super.delete(serverId);
-        //TODO: Send to vega
+        server.uninstall();
     }
   
     clear () {
@@ -72,6 +68,8 @@ module.exports.Main = class Main {
     error = this.logger.error.bind(this.logger);
     warn = this.logger.warn.bind(this.logger);
     debug = this.logger.debug.bind(this.logger);
+
+    activeTransfers = new Map();
 
     stopping = false;
 

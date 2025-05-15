@@ -14,6 +14,7 @@ const { spawn } = require("child_process");
 const serverTimeouts = require('./serverTimeouts.js');
 const Downloader = require('./downloader.js');
 const ServerOnStateUpdate = require('./messages/templates/serverOnStateUpdate.js');
+const SettingChangeHandler = require('./serverSettingChangeHandler.js');
 
 //TODO: File watchers that ONLY upload newly created files and ignore files that are defined in a .ignore file
 //TODO: We need to make a dedicated thread that will spawn the server process and handle all the IO so that we can spread the load and take it off the main process whenever theres a lot of data being sent by the server through stdio OR the net socket
@@ -48,12 +49,12 @@ class Server extends Module {
     /**
      * @param {import("./core.js")["Main"]["prototype"]} core 
      */
-    constructor(core, config) {
+    constructor(core, config, store = true) {
         super(core);
         this.stop = this.shutdown.bind(this);
         this.config = new ServerConfig(core, config);
+        this.settingChangeHandler = new SettingChangeHandler(this);
         this.ioHandler = new StandardIOHandler(this);
-        //TODO: Use this.config event emitter
         this.paths = new ServerPaths(this);
         this.monitor = new ServerMonitor(this);
         this.state = new serverState(this);
@@ -62,14 +63,18 @@ class Server extends Module {
         this.downloader.on("progress", () => this.state.downloadingCount = this.downloader.count); 
         this.state.on("set", this.onStateUpdate.bind(this));
 
-        this.main.servers.set(this.id, this);
-        this.init();
+        if (store) {
+            this.main.servers.set(this.id, this);
+            this.init();
+        }
     }
 
     //Only ran after the contructor is done
     async init() {
-        if (!this.installed) await this.installApplication();
-        let result = await this.configure();
+        let result;
+        if (!this.installed) result = await this.installApplication();
+        if (typeof result == "number") return;
+        result = await this.configure();
         if (this.config.autoStart && typeof result != "number") this.start();
     }
 
@@ -83,7 +88,7 @@ class Server extends Module {
     cancelOperation() {
         //requires support for canceling installs and updates
         if (this.state.updating || this.state.installing) {
-            this.steam.destroy();
+            this.steam?.destroy();
         } else if (this.state.configuring) {
             this.downloader.cancelAll();
         }
@@ -116,10 +121,10 @@ class Server extends Module {
 
         steam.on("state", v => {
             this.log("State: " + StateStrings[v])
-            this.state.steam = StateStrings[v];
+            //this.state.steam = StateStrings[v];
         });
 
-        steam.on("destroy", () => { this.steam = null });
+        steam.on("destroy", () => { this.steam = null; this.state.steam = null });
 
         steam.on("progress", p => {
             let bytes = p.downloaded != null ? p.downloaded : 0;
@@ -127,6 +132,7 @@ class Server extends Module {
             let percent = p.downloaded != null && p.total != null ? Math.floor(p.downloaded / p.total * 10000) / 100 : 0;
             this.log("Progress: {bytes}/{dBytes} {percent}%", this.main.lp({ bytes: bytes, dBytes: dBytes, percent: percent }));
             this.state.percent = p.downloaded != null && p.total != null ? Math.floor(p.downloaded / p.total * 100) : -1;
+            this.state.steam = StateStrings[steam.state] + " - " + bytes + "/" + dBytes;
         });
 
         await steam.hook(); // Waits for steam to be ready
@@ -140,8 +146,10 @@ class Server extends Module {
             return -1; //Download was probably canceled
         }
         try {
-            if (!this.config.beta) await steam.download(996560, this.paths.serverContainer);
-            else await steam.download(996560, this.paths.serverContainer, this.config.beta, this.config.betaPassword);
+            let result;
+            if (!this.config.beta) result = await steam.download(996560, this.paths.serverContainer);
+            else result = await steam.download(996560, this.paths.serverContainer, this.config.beta, this.config.betaPassword).catch(() => -2);
+            if (typeof result == "number") throw new Error("Process error " + result);
             this.log("Download complete", this.main.lp({ consoleColor: 2 }));
         } catch (e) {
             this.error("Failed to download application: {error}", this.main.lp({ error: e?.code || e?.message, stack: e?.stack }));
@@ -412,10 +420,19 @@ class Server extends Module {
     }
 
     async uninstall() {
+        if (this.state.uninstalling) return -1; //Server is already uninstalling
+        if (this.state.starting) return -2; //Server is starting
+        if (this.state.installing) return -3; //Server is installing
+        if (this.state.updating) return -4; //Server is updating
+        if (this.state.configuring) return -5; //Server is configuring
+        if (this.state.stopping) return -6; //Server is stopping
+        if (this.state.restarting) return -7; //Server is restarting
+        this.state.uninstalling = true;
+
         this.log("Uninstalling server", this.main.lp({ consoleColor: 4 }));
         if (this.process != null) {
             if (!this.state.stopping) await this.shutdown(true); //Force shutdown the server
-            await this.hooks.promise("shutdown")
+            else await this.hooks.promise("shutdown");
         }
         try {
             fs.rmSync(this.paths.serverContainer, { recursive: true, force: true });
@@ -424,6 +441,7 @@ class Server extends Module {
         }
         this.main.servers.delete(this.id);
         this.log("Server uninstalled", this.main.lp({ consoleColor: 2 }));
+        this.state.uninstalling = false;
     }
 
     async shutdown(force = false) {

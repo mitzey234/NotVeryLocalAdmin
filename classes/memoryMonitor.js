@@ -49,6 +49,7 @@ module.exports = class MemoryMonitor extends Module {
     let total = osAlt.totalmem();
     this.totalMemory = total*1000000;
     this.memory = (total-osAlt.freemem())*1000000;
+    if (!this.main.settings.memoryChecker) return;
     if (currentFree < this.main.settings.minimumMemoryThreashold && currentFree > this.main.settings.criticalMemoryThreashold) {
       if (this.minimumThreashPrompt == false) {
         this.minimumThreashPrompt = true;

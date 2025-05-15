@@ -116,6 +116,7 @@ class FileDownloader extends EventEmitter {
         this.process = fork(__filename);
         this.process.on("exit", this.onExit.bind(this));
         this.process.on("message", this.onMessage.bind(this));
+        this.process.on("error", e => this.emit(e));
         try {
             this.process.send(this.config);
         } catch (e) {

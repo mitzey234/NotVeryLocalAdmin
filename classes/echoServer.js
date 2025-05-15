@@ -1,6 +1,7 @@
 const udp = require('dgram');
 const { fork } = require('child_process');
 const EventEmitter = require('events');
+const EchoPort = require('./messages/templates/echoPort');
 
 
 class EchoServerInternal {
@@ -109,7 +110,7 @@ class EchoServer extends EventEmitter {
 
     set currentPort(value) {
         this._currentPort = value;
-        //TODO: Send to vega
+        if (this.main.vega.connected) this.main.vega.send(new EchoPort(this.main.vega, value));
     }
 
     currentAddress;
