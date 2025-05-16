@@ -14,6 +14,10 @@ class auth extends message {
 
     version;
 
+    echoPort;
+
+    addresses;
+
     constructor(main) {
         super(main);
         this.core.servers.forEach((server, id) => {
@@ -25,7 +29,9 @@ class auth extends message {
         this.id = this.core.settings.Vega.id;
         this.state = this.core.state.toObject();
         this.version = pack.version;
-        
+        this.echoPort = this.core.EchoServer.currentPort;
+        if (this.echoPort != null) this.addresses = this.core.addresses;
+        else this.addresses = null;
     }
 
 }

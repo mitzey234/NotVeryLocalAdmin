@@ -16,6 +16,7 @@ const VerkeyWatcher = require('./verkeyWatcher.js');
 const EchoServer = require('./echoServer.js');
 const MemoryMonitor = require('./memoryMonitor.js');
 const MachineOnStateUpdate = require('./messages/templates/machineOnStateUpdate.js');
+const osAlt = require('os');
 
 var verkeyPath = process.platform == "win32" ? path.join(process.env.APPDATA, "SCP Secret Laboratory", "verkey.txt") : path.join(process.env.HOME, ".config", "SCP Secret Laboratory", "verkey.txt");
 
@@ -91,6 +92,20 @@ module.exports.Main = class Main {
           } catch (e) {
             this.error("Failed to write verkey: {error}", this.lp({error: e?.code || e?.message, stack: e?.stack}));
           }
+    }
+
+    get addresses () {
+        const nets = osAlt.networkInterfaces();
+        var addresses = [];
+        for (let i in nets) {
+            let intf = nets[i];
+            for (let x in intf) {
+                let net = intf[x];
+                const familyV4Value = typeof net.family === 'string' ? 'IPv4' : 4
+                if (net.family === familyV4Value && !net.internal && !addresses.includes(net.address)) addresses.push(net.address);
+            }
+        }
+        return addresses;
     }
 
     constructor(daemonMode = false) {

@@ -62,7 +62,7 @@ class Steam extends EventEmitter {
 
     constructor (config = new settings()) {
         super();
-        console.log("Steam CDN Client initialized", config);
+        //console.log("Steam CDN Client initialized", config);
         this.config = config;
         this.cdn = new CDN(); // Initialize the CDN instance
         this.cdn.on("error", this.onError.bind(this));

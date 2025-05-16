@@ -516,6 +516,7 @@ class Server extends Module {
         if (executable == null) {
             this.state.error = "Failed to find executable";
             this.error("Failed to find executable");
+            this.state.starting = false;
             return -4;
         }
         let consolePort;

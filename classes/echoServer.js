@@ -74,6 +74,7 @@ class EchoServerInternal {
         try {
             let m = msg.slice(0, 4);
             this.server.send(m, rinfo.port, rinfo.address);
+            //console.log("Echoed message to", rinfo.address + ":" + rinfo.port, msg.toString('hex'));
         } catch (e) {
             console.error("Echo response error: ", e.code, e.message);
         }
