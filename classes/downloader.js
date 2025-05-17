@@ -92,7 +92,7 @@ module.exports = class Downloader extends EventEmitter {
     cancelAll () {
         this.queue.forEach((download) => download.cancel());
         this.inProgress.forEach((download) => download.cancel());
-        this.promises.forEach((obj) => obj.reject(new Error("Download cancelled")));
+        this.promises.forEach((obj) => obj.reject(new Error(-3)));
         this.promises = [];
     }
 }

@@ -152,17 +152,17 @@ class serverTransfer {
     cancel(reason) {
         if (this.state == "Cancelled") return;
         this.main.log("Transfer cancelled: {reason}", this.main.lp({ reason: reason, consoleColor: 5 }));
-        this.state = "Cancelled";
-        this.main.activeTransfers.delete(this.transferId);
         if (this.main.vega.connected) this.main.vega.send(new CancelTransfer(this.main.vega, this.transferId, reason));
+        this.main.activeTransfers.delete(this.transferId)
         try {
             this.server.cancelOperation();
             if (this.direction == "target") {
-                this.server.uninstall();
+                this.server.uninstall(true);
             } else {
                 this.server.state.transfering = false;
             }
         } catch (e) { }
+        this.state = "Cancelled";
     }
 }
 

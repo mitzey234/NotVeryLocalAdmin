@@ -88,6 +88,7 @@ class Server extends Module {
     cancelOperation() {
         //requires support for canceling installs and updates
         if (this.state.updating || this.state.installing) {
+            if (this.steam != null) this.steam.cancel = true;
             this.steam?.destroy();
         } else if (this.state.configuring) {
             this.downloader.cancelAll();
@@ -138,6 +139,12 @@ class Server extends Module {
         await steam.hook(); // Waits for steam to be ready
 
         if (steam.state != States.Ready) {
+            if (steam.cancel) {
+                this.state.installing = false;
+                this.state.percent = -1;
+                this.state.steam = null;
+                return -3; //Download was canceled
+            }
             this.error("Steam was not ready when hook was triggered, cannot install application");
             this.state.error = "Steam was not ready for download";
             this.state.installing = false;
@@ -152,6 +159,12 @@ class Server extends Module {
             if (typeof result == "number") throw new Error("Process error " + result);
             this.log("Download complete", this.main.lp({ consoleColor: 2 }));
         } catch (e) {
+            if (steam.cancel) {
+                this.state.installing = false;
+                this.state.percent = -1;
+                this.state.steam = null;
+                return -3; //Download was canceled
+            }
             this.error("Failed to download application: {error}", this.main.lp({ error: e?.code || e?.message, stack: e?.stack }));
             this.state.error = "Failed to download application";
             this.state.installing = false;
@@ -195,6 +208,8 @@ class Server extends Module {
             this.state.downloadingCount = this.downloader.count;
             
             let configs = await this.downloader.hook()?.catch(e => {
+                console.log(e)
+                if (e.filter(e => e.message == -3).length == 0) return -3; //User canceled
                 this.log("Failed to download files: {error}", this.main.lp({ error: e?.code || e?.message, stack: e?.stack }));
                 this.state.error = "Failed to download files";
                 return -2;
@@ -235,6 +250,8 @@ class Server extends Module {
             this.state.downloadingCount = this.downloader.count;
 
             let assemblies = await this.downloader.hook()?.catch(e => {
+                console.log(e)
+                if (e.filter(e => e.message == -3).length == 0) return -3; //User canceled
                 this.log("Failed to download assemblies: {error}", this.main.lp({ error: e?.code || e?.message, stack: e?.stack }));
                 this.state.error = "Failed to download assemblies";
                 return -2;
@@ -420,14 +437,16 @@ class Server extends Module {
         }
     }
 
-    async uninstall() {
+    async uninstall(force = false) {
         if (this.state.uninstalling) return -1; //Server is already uninstalling
-        if (this.state.starting) return -2; //Server is starting
-        if (this.state.installing) return -3; //Server is installing
-        if (this.state.updating) return -4; //Server is updating
-        if (this.state.configuring) return -5; //Server is configuring
-        if (this.state.stopping) return -6; //Server is stopping
-        if (this.state.restarting) return -7; //Server is restarting
+        if (!force) {
+            if (this.state.starting) return -2; //Server is starting
+            if (this.state.installing) return -3; //Server is installing
+            if (this.state.updating) return -4; //Server is updating
+            if (this.state.configuring) return -5; //Server is configuring
+            if (this.state.stopping) return -6; //Server is stopping
+            if (this.state.restarting) return -7; //Server is restarting
+        }
         this.state.uninstalling = true;
 
         this.log("Uninstalling server", this.main.lp({ consoleColor: 4 }));
@@ -598,8 +617,6 @@ class Server extends Module {
 
     onStateUpdate (data) {
         if (data.value == data.old) return;
-        let transfer = this.main.activeTransfers.get(this.config.id);
-        if (transfer != null && transfer.state == "Cancelled") return;
         this.main.vega.send(new ServerOnStateUpdate(this.main.vega, this.id, data));
     }
 
