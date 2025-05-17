@@ -60,6 +60,14 @@ class ServerMap extends Map {
     }
 }
 
+/** @augments {Map<string, import("./serverTransfer.js")>} */
+class TranferMap extends Map {
+
+    constructor () {
+        super();
+    }
+}
+
 module.exports.Main = class Main {
     settings = new Settings.Settings();
     SettingChangeHandler = new Settings.SettingChangeHandler(this);
@@ -70,7 +78,7 @@ module.exports.Main = class Main {
     warn = this.logger.warn.bind(this.logger);
     debug = this.logger.debug.bind(this.logger);
 
-    activeTransfers = new Map();
+    activeTransfers = new TranferMap();
 
     stopping = false;
 
