@@ -1,5 +1,4 @@
 var message = require('../../message');
-const ServerTransfer = require('../../serverTransfer');
 
 class cancelTransfer extends message {
 
@@ -16,8 +15,7 @@ class cancelTransfer extends message {
     handle () {
         let transfer = this.core.activeTransfers.get(this.id);
         if (transfer == null) return;
-        transfer.cancel()
-        new ServerTransfer(this.config, this.core, this.direction);
+        transfer.cancel(this.reason);
     }
 }
 
