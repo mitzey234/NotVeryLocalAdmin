@@ -28,7 +28,7 @@ class serverTransfer {
     set state(v) {
         if (v == this._state) return;
         this._state = v;
-        if (this.main.vega.connected) this.main.vega.client.sendMessage(new TransferStateUpdate(this.main.vega, this.server.id, v));
+        if (this.main.vega.connected) this.main.vega.send(new TransferStateUpdate(this.main.vega, this.server.id, v));
     }
 
     /**
