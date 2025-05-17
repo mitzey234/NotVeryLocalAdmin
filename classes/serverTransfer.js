@@ -1,5 +1,6 @@
 const Server = require("./server");
 const TransferStateUpdate = require("./messages/templates/transferStateUpdate");
+const CancelTransfer = require("./messages/templates/cancelTransfer");
 
 class serverTransfer {
     /** @type string */
@@ -145,7 +146,6 @@ class serverTransfer {
         this.state = "Waiting";
         this.main.log("Server {server} ready for transfer", this.main.lp({ server: this.server.config.label, consoleColor: 5 }));
         //Ready
-        //TODO: this.main.vega.client.sendMessage(new mt.transferTargetReady(this.transferId));
     }
 
     //Called by any, when transfer is cancelled locally
@@ -154,10 +154,10 @@ class serverTransfer {
         this.main.log("Transfer cancelled: {reason}", this.main.lp({ reason: reason, consoleColor: 5 }));
         this.state = "Cancelled";
         this.main.activeTransfers.delete(this.transferId);
-        //TODO: if (this.main.vega != null && this.main.vega.connected) this.main.vega.send(new mt.cancelTransfer(this.transferId, reason));
+        if (this.main.vega.connected) this.main.vega.send(new CancelTransfer(this.main.vega, this.transferId, reason));
         try {
+            this.server.cancelOperation();
             if (this.direction == "target") {
-                this.server.cancelOperation();
                 this.server.uninstall();
             } else {
                 this.server.state.transfering = false;

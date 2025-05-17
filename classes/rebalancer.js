@@ -16,7 +16,7 @@ class Rebalancer {
         this.main = m;
         this.log = this.main.log;
         this.error = this.main.error;
-        this.verbose = this.main.verbose;
+        this.verbose = this.main.debug;
         this.warn = this.main.warn;
 
         if (this.main.settings.cpuBalance) {

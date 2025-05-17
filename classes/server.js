@@ -597,7 +597,6 @@ class Server extends Module {
 
     onStateUpdate (data) {
         if (data.value == data.old) return;
-        this.log("State Update: ", data);
         this.main.vega.send(new ServerOnStateUpdate(this.main.vega, this.id, data));
     }
 

@@ -154,6 +154,7 @@ class Vega {
         if (!this.stopping && !this.restarting) setTimeout(this.connect.bind(this), 5000);
         else if (this.restarting) this.connect();
         this.restarting = false;
+        this.main.activeTransfers.forEach(t => t.cancel("Vega connection lost"));
     }
 
     onConnect () {
