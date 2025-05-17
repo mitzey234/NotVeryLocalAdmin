@@ -555,7 +555,7 @@ class Server extends Module {
             this.timeout = null;
         }
 
-        if (this.config.watchForStart) this.timeout = setTimeout(serverTimeouts.startTimeout.bind(this), 1000 * this.config.maximumStartupTime);
+        if (this.config.watchForStart || this.state.transfering) this.timeout = setTimeout(serverTimeouts.startTimeout.bind(this), 1000 * this.config.maximumStartupTime);
         return this.hooks.promise("start");
     }
 
@@ -636,7 +636,7 @@ class Server extends Module {
         if (this.state.transfering && this.main.activeTransfers.has(this.config.id) && this.main.activeTransfers.get(this.config.id).direction == "source") {
             this.log("Server Transfering", this.main.lp({ color: 2 }));
             this.state.transfering = false;
-            //TODO: this.main.vega.client.sendMessage(new mt.sourceReady(this.config.id));
+            this.main.activeTransfers.get(this.config.id).state = "Ready";
             this.uninstall();
             this.main.activeTransfers.delete(this.config.id);
             return;

@@ -17,6 +17,8 @@ class transferState extends message {
         transfer._state = this.value;
         if (transfer.state == "Waiting" && transfer.direction == "source") {
             transfer.targetReady();
+        } else if (transfer.state == "Ready" && transfer.direction == "target") {
+            transfer.sourceReady();
         }
     }
 }
