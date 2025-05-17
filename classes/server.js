@@ -597,6 +597,8 @@ class Server extends Module {
 
     onStateUpdate (data) {
         if (data.value == data.old) return;
+        let transfer = this.main.activeTransfers.get(this.config.id);
+        if (transfer != null && transfer.state == "Cancelled") return;
         this.main.vega.send(new ServerOnStateUpdate(this.main.vega, this.id, data));
     }
 
