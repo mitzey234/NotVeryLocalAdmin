@@ -636,8 +636,8 @@ class Server extends Module {
         if (this.state.transfering && this.main.activeTransfers.has(this.config.id) && this.main.activeTransfers.get(this.config.id).direction == "source") {
             this.log("Server Transfering", this.main.lp({ color: 2 }));
             this.state.transfering = false;
-            this.main.activeTransfers.get(this.config.id).state = "Ready";
             this.uninstall();
+            this.main.activeTransfers.get(this.config.id).state = "Ready";
             this.main.activeTransfers.delete(this.config.id);
             return;
         }
