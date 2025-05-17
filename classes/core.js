@@ -142,6 +142,7 @@ module.exports.Main = class Main {
     async stop (preserve = false) {
         if (this.stopping && !preserve) return process.exit(0);
         clearInterval(this.interval);
+        this.EchoServer.stop();
         this.vega.stop();
         this.stopping = true;
         this.SettingChangeHandler.disabled = true;

@@ -26,6 +26,11 @@ process.on("SIGUSR1", function() {
     main.restart();
 });
 
+process.on('SIGQUIT', function() {
+    main.log("Stop triggered by SIGINT");
+    main.stop();
+});
+
 process.on("uncaughtException", handleCriticalFailure);
 process.on("unhandledRejection", handleCriticalFailure);
 
@@ -53,6 +58,3 @@ stdin.addListener("data", function(d) {
 		main.log("Failed user input: {input} - {e}", new LP({input: test, e: e.code || e.message, stack: e.stack}));
 	}
 });
-
-process.on('SIGINT', main.stop.bind(main));
-process.on('SIGQUIT', main.stop.bind(main));

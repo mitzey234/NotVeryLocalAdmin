@@ -447,6 +447,7 @@ class Server extends Module {
 
     async shutdown(force = false) {
         if (this.process == null) return -1; //Server process not active
+        console.log(this.state.starting, this.state.stopping, this.state.delayedStop)
         if ((this.state.stopping && !this.state.delayedStop) || (this.state.starting)) {
             this.log("Killing server", this.main.lp({ consoleColor: 6 }));
             if (this.state.starting == true) {

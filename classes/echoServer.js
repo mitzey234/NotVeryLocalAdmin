@@ -37,6 +37,10 @@ class EchoServerInternal {
     onMessage(m) {
         if (m.type == "start") this.start(m.port, m.address);
         else if (m.type == "rebind") this.rebind(m.port, m.address);
+        else if (m.type == "stop") {
+            this.server.close();
+            process.exit(0);
+        }
     }
 
     destroy() {
@@ -144,7 +148,7 @@ class EchoServer extends EventEmitter {
     stop() {
         if (this.process == null) return;
         this.stopping = true;
-        this.process.kill();
+        this.process.send({type: "stop"});
     }
 
     rebind() {
