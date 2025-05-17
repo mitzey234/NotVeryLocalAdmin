@@ -48,6 +48,7 @@ module.exports = class Downloader extends EventEmitter {
     }
 
     complete() {
+        this.main.log("All downloads complete", this.main.main.lp({consoleColor: 2}));
         if (this.errors.length > 0) {
             this.promises.forEach((obj) => obj.reject(new Error(this.errors.join(","))));
             this.promises = [];
@@ -93,6 +94,5 @@ module.exports = class Downloader extends EventEmitter {
         this.inProgress.forEach((download) => download.cancel());
         this.promises.forEach((obj) => obj.reject(new Error("Download cancelled")));
         this.promises = [];
-        this.main.state.configuring = false;
     }
 }

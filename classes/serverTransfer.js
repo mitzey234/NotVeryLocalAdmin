@@ -1,4 +1,5 @@
 const Server = require("./server");
+const TransferStateUpdate = require("./messages/templates/transferStateUpdate");
 
 class serverTransfer {
     /** @type string */
@@ -27,7 +28,7 @@ class serverTransfer {
     set state(v) {
         if (v == this._state) return;
         this._state = v;
-        if (this.main.vega.connected) this.main.vega.client.sendMessage(new mt.transferStateUpdate({ key: "transferState", value: v, server: this.server }));
+        if (this.main.vega.connected) this.main.vega.client.sendMessage(new TransferStateUpdate(this.main.vega, this.server.id, v));
     }
 
     /**

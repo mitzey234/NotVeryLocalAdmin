@@ -44,9 +44,10 @@ class ServerMap extends Map {
      * @param {string} serverId 
      */
     delete (serverId) {
-        if (!this.has(serverId)) return;
+        if (!super.has(serverId)) return;
         let server = this.get(serverId);
-        server.uninstall();
+        super.delete(serverId);
+        if (!server.state.uninstalling) server.uninstall();
     }
   
     clear () {

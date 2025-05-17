@@ -80,7 +80,6 @@ class EchoServerInternal {
         }
     }
 
-    //TODO: Test this
     echoServerError(e) {
         console.error("Bind Error: ", e.code, e.message);
         if (this.currentPort != null && this.currentAddress != null) {
@@ -122,7 +121,6 @@ class EchoServer extends EventEmitter {
         if (this.main.settings.echoServerEnabled) this.start();
     }
 
-    //TODO: Test this
     start() {
         if (this.process != null) return;
         this.stopping = false;
@@ -143,14 +141,12 @@ class EchoServer extends EventEmitter {
         }
     }
 
-    //TODO: Test this
     stop() {
         if (this.process == null) return;
         this.stopping = true;
         this.process.kill();
     }
 
-    //TODO: Test this
     rebind() {
         if (this.process == null) return;
         this.process.send({ type: "rebind", port: this.main.settings.echoServerPort, address: this.main.settings.echoServerAddress });

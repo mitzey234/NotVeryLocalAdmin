@@ -169,9 +169,10 @@ class Server extends Module {
     async configure () {
         if (this.state.configuring) return -1; //Server is already configuring
         if (this.state.starting) return -2; //Server is starting
+        if (this.state.installing) return -3; //Server is installing
+        this.downloader.cancelAll();
         this.state.configuring = true;
         this.log("Configuring server", this.main.lp({ consoleColor: 4 }));
-        this.downloader.cancelAll();
         
         /** @type {Array<import("./file")>} */
         let pluginConfigs = this.main.vega.requestFiles("pluginConfigs", this.id).catch(this.fileRequestError.bind(this));
@@ -596,6 +597,7 @@ class Server extends Module {
 
     onStateUpdate (data) {
         if (data.value == data.old) return;
+        this.log("State Update: ", data);
         this.main.vega.send(new ServerOnStateUpdate(this.main.vega, this.id, data));
     }
 

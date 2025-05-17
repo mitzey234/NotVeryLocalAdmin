@@ -186,13 +186,13 @@ class FileDownloader extends EventEmitter {
         } else if (m.type == "failure") {
             let e = new Error(m.error);
             e.stack = m.stack;
-            this.promise.reject(e);
+            this.promise?.reject(e);
             this.promise = null; //Reset the promise
             this.emit("finish", true);
         } else if (m.type == "complete") {
             //console.log("Done:", this.file.filename);
             this.reset();
-            this.promise.resolve(true);
+            this.promise?.resolve(true);
             this.promise = null;
             this.emit("finish", true);
         } else if (m.type == "error") {
@@ -375,7 +375,11 @@ class IFileDownloader {
             throw new Error('Checksum mismatch for chunk ' + chunk.sha);
 		} else {
 			FS.writeSync(fd, result, 0, result.length, parseInt(chunk.offset));
-            process.send({type: "chunkComplete", chunk: chunk});
+            try {
+                process.send({type: "chunkComplete", chunk: chunk});
+            } catch (e) {
+                // Ignore the error
+            }
             //console.log("Done:", chunk.sha);
             return true;
 		}
