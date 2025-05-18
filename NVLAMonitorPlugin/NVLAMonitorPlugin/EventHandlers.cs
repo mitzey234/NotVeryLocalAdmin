@@ -1,26 +1,19 @@
-﻿using PluginAPI.Core.Attributes;
-using PluginAPI.Enums;
-using MEC;
-using System.Collections.Generic;
-using System;
-using PluginAPI.Core;
+﻿using System;
 using System.Linq;
 using Newtonsoft.Json.Linq;
 using UnityEngine;
-using PlayerRoles.Spectating;
-using PlayerRoles;
-using Respawning;
-using Hints;
+using LabApi.Events.CustomHandlers;
+using LabApi.Features.Wrappers;
+using Logger = LabApi.Features.Console.Logger;
 
 //Serves as a generic event handler object for any common events that don't pertain to any specific plugin or feature
 namespace NVLAMonitorPlugin.Utils
 {
-    public class EventHandlers
+    public class EventHandlers : CustomEventsHandler
     {
         GameObject go;
 
-        [PluginEvent(ServerEventType.WaitingForPlayers)]
-        public void OnWaitingForPlayers()
+        public override void OnServerWaitingForPlayers()
         {
             if (go == null)
             {
@@ -58,7 +51,7 @@ namespace NVLAMonitorPlugin.Utils
 
         public data ()
         {
-            players = Player.GetPlayers().Where(x => !x.IsServer).Select(x => x.Nickname).ToArray();
+            players = Player.List.Where(x => !x.IsServer).Select(x => x.Nickname).ToArray();
             tps = (int)Math.Round(1.0f / Time.smoothDeltaTime);
         }
     }

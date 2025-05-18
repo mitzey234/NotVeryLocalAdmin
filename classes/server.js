@@ -15,6 +15,7 @@ const serverTimeouts = require('./serverTimeouts.js');
 const Downloader = require('./downloader.js');
 const ServerOnStateUpdate = require('./messages/templates/serverOnStateUpdate.js');
 const SettingChangeHandler = require('./serverSettingChangeHandler.js');
+const ServerConsoleLog = require('./messages/templates/serverConsoleLog.js');
 
 //TODO: File watchers that ONLY upload newly created files and ignore files that are defined in a .ignore file
 //TODO: We need to make a dedicated thread that will spawn the server process and handle all the IO so that we can spread the load and take it off the main process whenever theres a lot of data being sent by the server through stdio OR the net socket
@@ -122,7 +123,7 @@ class Server extends Module {
 
         steam.on("state", v => {
             this.log("State: " + StateStrings[v])
-            //this.state.steam = StateStrings[v];
+            this.state.steam = StateStrings[v];
         });
 
         steam.on("destroy", () => { this.steam = null; this.state.steam = null });
@@ -133,7 +134,6 @@ class Server extends Module {
             let percent = p.downloaded != null && p.total != null ? Math.floor(p.downloaded / p.total * 10000) / 100 : 0;
             this.log("Progress: {bytes}/{dBytes} {percent}%", this.main.lp({ bytes: bytes, dBytes: dBytes, percent: percent }));
             this.state.percent = p.downloaded != null && p.total != null ? Math.floor(p.downloaded / p.total * 100) : -1;
-            this.state.steam = StateStrings[steam.state] + " - " + bytes + "/" + dBytes;
         });
 
         await steam.hook(); // Waits for steam to be ready
@@ -609,6 +609,7 @@ class Server extends Module {
         if (!nolog) this.log("Sending command: {command}", this.main.lp({ command: command, consoleColor: 2 }));
         try {
             this.ioHandler.connectionToServer.write(Buffer.concat([util.toInt32(command.length), Buffer.from(command)]));
+            if (!nolog && this.main.vega.connected) this.main.vega.send(new ServerConsoleLog(this.main.vega, this.id, "> " + command.trim(), 6, Date.now()));
         } catch (e) {
             this.error("Console Socket Write Error: {e}", this.main.lp({ e: e != null ? e.code || e.message || e : e, stack: e != null ? e.stack : e, color: 4 }));
             return -2;

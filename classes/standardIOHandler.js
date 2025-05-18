@@ -1,6 +1,7 @@
 const Net = require("net");
 const chalk = require("chalk");
 const LP = require("./logging").LP;
+const ServerConsoleLog = require("./messages/templates/serverConsoleLog");
 
 let colors = {
     0: chalk.black,
@@ -63,7 +64,19 @@ class StandardIOHandler {
 
     async handleStdout(data) {
         let d = data.toString().split("\n");
-        for (let i in d)
+        for (let i in d) {
+            if (d[i].trim() == "") continue;
+            if (d[i].indexOf("////NVLAMONITORSTATS--->") > -1) {
+                let data = d[i].replace("////NVLAMONITORSTATS--->", "");
+                try {
+                    data = JSON.parse(data);
+                } catch (e) {
+                    this.error("Failed to parse NVLA Monitor stats: {e}", new LP({ e: e }));
+                    return;
+                }
+                this.server.monitor.onMonitorUpdate(data);
+                return;
+            }
             if (d[i].trim() != "") {
                 var cleanup = false;
                 if (this.server.config.cleanLogs) {
@@ -88,6 +101,7 @@ class StandardIOHandler {
                 if (cleanup == true && this.server.config.cleanLogs) continue;
                 this.verbose(d[i], new LP({ logType: "sdtout", cleanup: cleanup, color: 8 }));
             }
+        }
     }
 
     async handleStderr(data) {
@@ -238,7 +252,7 @@ class StandardIOHandler {
             else if (this.tempListOfPlayersCatcher) delete this.tempListOfPlayersCatcher;
             if (message.charAt(0) == "\n") message = message.substring(1, message.length);
             if (message.indexOf("Welcome to") > -1 && message.length > 1000) message = colors[control]("Welcome to EXILED (ASCII Cleaned to save your logs)");
-            //TODO: this.server.main.vega.client.sendMessage(new mt.serverConsoleLog(this.server.config.id, message.replace(ansiStripRegex, "").trim(), control));
+            if (this.server.main.vega.connected) this.server.main.vega.send(new ServerConsoleLog(this.server.main.vega, this.server.id, message.replace(ansiStripRegex, "").trim(), control, Date.now()));
             this.log(message.trim(), new LP({ logType: "console", color: control }));
         }
     }

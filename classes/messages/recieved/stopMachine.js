@@ -6,7 +6,7 @@ class stopMachine extends message {
     }
 
     handle () {
-        this.core.info('Web Stopping machine...');
+        this.core.log('Web Stopping machine...');
         this.core.stop();
     }
 }

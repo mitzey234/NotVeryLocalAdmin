@@ -142,11 +142,11 @@ class ServerMonitor extends Module {
 
     async checkServer() {
         if (this.server.process == null) return;
-        return new Promise(function (resolve, reject) {
+        return new Promise((resolve, reject) => {
             this.checkCallback = resolve;
             this.checkTimeout = setTimeout(reject.bind(null, "Timeout"), 8000);
             this.server.command("list", true);
-        }.bind(this));
+        });
     }
 }
 

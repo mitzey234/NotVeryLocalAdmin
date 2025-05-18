@@ -1,35 +1,36 @@
-﻿using PluginAPI.Core.Attributes;
-using PluginAPI.Events;
-using System;
-using PlayerRoles;
-using System.Collections.Generic;
-using System.IO;
-using Footprinting;
-using PluginAPI.Core;
-using Interactables.Interobjects;
-using Player = PluginAPI.Core.Player;
+﻿using System;
+using LabApi.Events;
+using LabApi.Events.CustomHandlers;
+using LabApi.Loader.Features.Plugins;
+using NVLAMonitorPlugin.Utils;
 
 namespace NVLAMonitorPlugin
 {
-    public class Plugin
+    public class NVLAMonitor : Plugin
     {
-        public static Plugin Singleton { get; private set; }
+        public static Plugin Instance { get; private set; }
         
+        public EventHandlers Events { get; } = new ();
         
-        [PluginEntryPoint("NVLAMonitorPlugin", "1.0.0", "NVLA monitoring plugin used for giving NVLA server status updates", "Mitzey")]
-        void LoadPlugin()
+        public override string Name => "NVLAMonitorPlugin";
+        public override string Description { get; } = "Plugin to monitor SCPSL server status and provide updates to NVLA";
+        public override string Author { get; } = "Mitzey";
+        public override Version Version { get; } = new(1, 0, 0);
+        public override Version RequiredApiVersion { get; } = new(1, 0, 0);
+
+        public NVLAMonitor()
         {
-            Singleton = this;
-            EventManager.RegisterEvents<Utils.EventHandlers>(this);
+            Instance = this;
         }
-        
-        [PluginUnload]
-        void UnloadPlugin()
+
+        public override void Enable()
         {
-            EventManager.UnregisterEvents<Utils.EventHandlers>(this);
+            CustomHandlersManager.RegisterEventsHandler(Events);
         }
-        
-        [PluginConfig]
-        public Config PluginConfig;
+
+        public override void Disable ()
+        {
+            CustomHandlersManager.UnregisterEventsHandler(Events);
+        }
     }
 }
