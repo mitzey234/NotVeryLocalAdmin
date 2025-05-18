@@ -54,7 +54,7 @@ class ServerPaths {
     }
   
     get globalDedicatedServerConfigFiles () {
-      return path.join(this.appdata, "config", this.port);
+      return path.join(this.appdata, "config", "global");
     }
   
     get serverCustomAssembliesFolder () {

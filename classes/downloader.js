@@ -50,7 +50,7 @@ module.exports = class Downloader extends EventEmitter {
     complete() {
         this.main.log("All downloads complete", this.main.main.lp({consoleColor: 2}));
         if (this.errors.length > 0) {
-            this.promises.forEach((obj) => obj.reject(new Error(this.errors.join(","))));
+            this.promises.forEach((obj) => obj.resolve(new Error(this.errors.join(","))));
             this.promises = [];
             this.errors = [];
         } else {

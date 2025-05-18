@@ -208,8 +208,8 @@ class Server extends Module {
             this.state.downloadingCount = this.downloader.count;
             
             let configs = await this.downloader.hook()?.catch(e => {
-                console.log(e)
-                if (e.filter(e => e.message == -3).length == 0) return -3; //User canceled
+                this.error(e);
+                if (Array.isArray(e) && e.filter(e => e.message == -3).length == 0) return -3; //User canceled
                 this.log("Failed to download files: {error}", this.main.lp({ error: e?.code || e?.message, stack: e?.stack }));
                 this.state.error = "Failed to download files";
                 return -2;
@@ -250,8 +250,8 @@ class Server extends Module {
             this.state.downloadingCount = this.downloader.count;
 
             let assemblies = await this.downloader.hook()?.catch(e => {
-                console.log(e)
-                if (e.filter(e => e.message == -3).length == 0) return -3; //User canceled
+                this.error(e);
+                if (Array.isArray(e) && e.filter(e => e.message == -3).length == 0) return -3; //User canceled
                 this.log("Failed to download assemblies: {error}", this.main.lp({ error: e?.code || e?.message, stack: e?.stack }));
                 this.state.error = "Failed to download assemblies";
                 return -2;
