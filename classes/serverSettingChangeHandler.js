@@ -19,7 +19,7 @@ module.exports = class SettingChangeHandler {
       this.functionMaps.set("assignedMachine", this.handleMachineChange.bind(this));
       this.functionMaps.set("plugins", this.handleAssemblyChange.bind(this, "plugins"));
       this.functionMaps.set("customAssemblies", this.handleAssemblyChange.bind(this, "customAssemblies"));
-      this.functionMaps.set("dependancies", this.handleAssemblyChange.bind(this, "dependancies"));
+      this.functionMaps.set("dependancies", this.handleAssemblyChange.bind(this, "dependencies"));
       this.functionMaps.set("appDataFolderName", this.handleAppDataFolderChange.bind(this));
       this.functionMaps.set("pluginsFolderPath", this.handlePluginsFolderChange.bind(this));
       this.functionMaps.set("dependanciesFolderPath", this.handleDependenciesFolderChange.bind(this));
@@ -55,7 +55,7 @@ module.exports = class SettingChangeHandler {
         let folder;
         if (label == "plugins") folder = this.Main.paths.pluginsFolderPath;
         else if (label == "customAssemblies") folder = this.Main.paths.serverCustomAssembliesFolder;
-        else if (label == "dependancies") folder = this.Main.paths.dependanciesFolderPath;
+        else if (label == "dependencies") folder = this.Main.paths.dependanciesFolderPath;
         else return;
         let fsPath = path.join(folder, plugin + ".dll");
         if (fs.existsSync(fsPath)) {
@@ -74,7 +74,7 @@ module.exports = class SettingChangeHandler {
         let folder;
         if (label == "plugins") folder = this.Main.paths.pluginsFolderPath;
         else if (label == "customAssemblies") folder = this.Main.paths.serverCustomAssembliesFolder;
-        else if (label == "dependancies") folder = this.Main.paths.dependanciesFolderPath;
+        else if (label == "dependencies") folder = this.Main.paths.dependanciesFolderPath;
         else return;
         let fsPath = path.join(folder, plugin + ".dll");
         if (fs.existsSync(fsPath)) {
