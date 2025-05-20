@@ -94,6 +94,14 @@ class Decoder extends EventEmitter {
 			this.emit("finish", sha);
 		}
 	}
+
+	stop () {
+		if (this.process == null) return;
+		this.stopping = true;
+		this.process.kill(9);
+		this.process = null;
+		this.reset();
+	}
 }
 
 class IDecoder extends EventEmitter {

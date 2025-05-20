@@ -162,7 +162,7 @@ class FileDownloader extends EventEmitter {
         this.reset();
         if (this.process == null) return;
         this.stopping = true;
-        this.process.kill();
+        this.process.kill(9);
         this.emit("finish", true);
     }
 
