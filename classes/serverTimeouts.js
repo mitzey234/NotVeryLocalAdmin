@@ -19,11 +19,11 @@ module.exports = {
     restart: function () {
         this.error("{label} Restart took too long, forcing", this.main.lp({label: this.config.label}));
         this.timeout = null;
-        this.process.kill();
+        this.process.kill(9);
     },
     stopTimeout: function () {
         this.error("{label} Shutdown took too long, forcing", {label: this.config.label});
         this.timeout = null;
-        this.process.kill();
+        this.process.kill(9);
     }
 }

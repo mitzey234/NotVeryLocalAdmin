@@ -159,6 +159,10 @@ class StandardIOHandler {
             } else {
                 this.server.state.stopping = true;
                 this.server.state.delayedStop = true;
+                if (this.server.timeout) {
+                    clearTimeout(this.server.timeout);
+                    this.server.timeout = null;
+                }
             }
         } else if (code == 22) {
             //ExitActionRestartEntry
@@ -172,6 +176,10 @@ class StandardIOHandler {
             } else {
                 this.server.state.restarting = true;
                 this.server.state.delayedRestart = true;
+                if (this.server.timeout) {
+                    clearTimeout(this.server.timeout);
+                    this.server.timeout = null;
+                }
             }
         } else if (code == 19) {
             //ExitActionResetEntry
@@ -232,8 +240,11 @@ class StandardIOHandler {
             let m = chunk.slice(5, 5 + length);
             chunk = chunk.slice(5 + length);
             let message = "";
-            for (let i = 0; i < m.length; i++) message += String.fromCharCode(m[i])
-            if (message.trim() == ("New round has been started.")) this.server.state.roundStartTime = new Date().getTime();
+            for (let i = 0; i < m.length; i++) message += String.fromCharCode(m[i]);
+            if (message.trim() == ("New round has been started.")) {
+                this.server.state.roundStartTime = new Date().getTime();
+                console.log("Round start:", this.server.state.roundStartTime);
+            }
             if (this.server.monitor.checkCallback != null && message.indexOf("List of players") > -1) {
                 var players = message.substring(message.indexOf("List of players") + 17, message.indexOf("List of players") + 17 + message.substring(message.indexOf("List of players") + 17).indexOf(")"));
                 players = parseInt(players);

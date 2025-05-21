@@ -87,7 +87,7 @@ class ServerMonitor extends Module {
                     if (this.checkTimeoutCount >= this.server.config.maximumServerUnresponsiveTime / 8) {
                         this.error("Server is unresponsive, restarting", new LP({ color: 4 }));
                         this.server.state.restarting = true;
-                        this.process.kill(9);
+                        this.server.process.kill(9);
                     }
                 } else {
                     this.error("Failed to check server, code: {e}", new LP({ e: e }));
@@ -133,7 +133,7 @@ class ServerMonitor extends Module {
         if (this.checkTimeoutCount >= this.server.config.maximumServerUnresponsiveTime / 8) {
             this.error("Server is unresponsive, restarting", new LP({ color: 4 }));
             this.server.state.restarting = true;
-            this.process.kill(9);
+            this.server.process.kill(9);
         } else {
             clearTimeout(this.monitorTimeout);
             this.monitorTimeout = setTimeout(this.monitorUpdateTimeout.bind(this), this.server.state.idleMode ? 60000 * 5 : 8000);
