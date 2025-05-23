@@ -734,6 +734,13 @@ class Server extends Module {
         } catch (e) {
           this.error("Failed to clear ServerLogs\n{e}", {e: e});
         }
+        target = path.join(this.paths.appdata, "Metrics");
+        if (!fs.existsSync(target)) return;
+        try {
+          fs.rmSync(target, {recursive: true, force: true});
+        } catch (e) {
+          this.error("Failed to clear Metrics\n{e}", {e: e});
+        }
     }
 
     toJSON() {

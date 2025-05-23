@@ -12,7 +12,7 @@ class cancelOperation extends message {
         let server = this.core.servers.get(this.id);
         if (server) {
             try {
-                this.core.log(`Web caneling operation {slabel}`, this.core.lp({sid: this.id, slabel: server.label}));
+                this.core.log(`Web caneling operation {serverName}`, this.core.lp({sid: this.id, serverName: server.label}));
                 server.cancelOperation();
             } catch (e) {
                 this.core.error(`Error canceling operation on server {sid}: ${e}`, this.core.lp({sid: this.id, e: e?.code || e?.message || e, stack: e?.stack}));

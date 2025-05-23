@@ -82,7 +82,7 @@ class ServerMonitor extends Module {
                 await this.checkServer();
             } catch (e) {
                 if (e == "Timeout") {
-                    this.error("Failed to check server, server timed out {count}", new LP({count: this.checkTimeoutCount, color: 4 }));
+                    this.main.error("Failed to check server, server timed out {count}", new LP({count: this.checkTimeoutCount, color: 4 }));
                     this.checkTimeoutCount++;
                     if (this.checkTimeoutCount >= this.server.config.maximumServerUnresponsiveTime / 8) {
                         this.error("Server is unresponsive, restarting", new LP({ color: 4 }));

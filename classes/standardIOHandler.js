@@ -197,14 +197,14 @@ class StandardIOHandler {
             this.server.state.tps = 0;
             if (this.server.monitor.nvlaMonitorInstalled) {
                 clearTimeout(this.server.monitor.monitorTimeout);
-                this.server.monitor.monitorTimeout = setTimeout(this.server.monitor.monitorUpdateTimeout.bind(this), 60000 * 5);
+                this.server.monitor.monitorTimeout = setTimeout(this.server.monitor.monitorUpdateTimeout.bind(this.server.monitor), 60000 * 5);
             }
         } else if (code == 18) {
             //Exiting idle mode
             this.server.state.idleMode = false;
             if (this.server.monitor.nvlaMonitorInstalled) {
                 clearTimeout(this.server.monitor.monitorTimeout);
-                this.server.monitor.monitorTimeout = setTimeout(this.server.monitor.monitorUpdateTimeout.bind(this), 8000);
+                this.server.monitor.monitorTimeout = setTimeout(this.server.monitor.monitorUpdateTimeout.bind(this.server.monitor), 8000);
             }
         } else if (code == 23) {
             //HeartbeatEntry
