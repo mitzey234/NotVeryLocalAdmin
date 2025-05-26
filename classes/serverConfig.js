@@ -97,8 +97,22 @@ class ServerConfig extends EventEmitter {
       for (var rt in this.restartTime) if (obj.restartTime[rt] != null) this.restartTime[rt] = obj.restartTime[rt];
       delete obj.restartTime;
     }
-
-    for (var i in this) if (!i.startsWith("_") && typeof this[i] != "function" && obj[i] != null) this[i] = obj[i];
+    for (var i in this) if (!i.startsWith("_") && typeof this[i] != "function" && obj[i] != null) {
+      if (Array.isArray(this[i]) && Array.isArray(obj[i])) {
+        let local = this[i];
+        //Remove items that are not in the new array using delete
+        for (let x = local.length-1; x >= 0; x--) {
+          if (!obj[i].includes(local[x])) {
+            delete local[x];
+          }
+        }
+        //Add missing items from the new array
+        let missing = obj[i].filter(item => !local.includes(item));
+        for (let x in missing) {
+          local.push(missing[x]);
+        }
+      } else this[i] = obj[i];
+    }
   }
 
   toString() {

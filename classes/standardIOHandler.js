@@ -193,7 +193,7 @@ class StandardIOHandler {
         } else if (code == 17) {
             //Entering idle mode
             this.server.state.idleMode = true;
-            this.server.state.players = [];
+            this.server.state.players = 0;
             this.server.state.tps = 0;
             if (this.server.monitor.nvlaMonitorInstalled) {
                 clearTimeout(this.server.monitor.monitorTimeout);

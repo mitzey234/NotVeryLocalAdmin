@@ -5,13 +5,13 @@ class requestAssemblies extends message {
 
     requestId;
 
-    assemblies;
+    serverId;
 
-    constructor(main, label, assemblies, requestId) {
+    constructor(main, label, serverId, requestId) {
         super(main);
         this.label = label;
         this.requestId = requestId;
-        this.assemblies = assemblies;
+        this.serverId = serverId;
     }
 }
 

@@ -39,6 +39,8 @@ class Server extends Module {
 
     lastModified = 0;
 
+    pauseStateUpdates = false;
+
     get id() {
         return this.config.id;
     }
@@ -229,13 +231,13 @@ class Server extends Module {
         }
 
         /** @type {Array<import("./assembly")>} */
-        let plugins = this.main.vega.requestAssemblies("plugins", this.config.plugins).catch(this.assemblyRequestError.bind(this));
+        let plugins = this.main.vega.requestAssemblies("plugins", this.id).catch(this.assemblyRequestError.bind(this));
 
         /** @type {Array<import("./assembly")>} */
-        let dependancies = this.main.vega.requestAssemblies("dependencies", this.config.dependancies).catch(this.assemblyRequestError.bind(this));
+        let dependancies = this.main.vega.requestAssemblies("dependencies", this.id).catch(this.assemblyRequestError.bind(this));
         
         /** @type {Array<import("./assembly")>} */
-        let customAssemblies = this.main.vega.requestAssemblies("customAssemblies", this.config.customAssemblies).catch(this.assemblyRequestError.bind(this));
+        let customAssemblies = this.main.vega.requestAssemblies("customAssemblies", this.id).catch(this.assemblyRequestError.bind(this));
 
         let res2 = await Promise.all([plugins, dependancies, customAssemblies]);
         plugins = res2[0];
@@ -505,6 +507,27 @@ class Server extends Module {
             this.state.error = "System memory too low";
             return -11; //Machine memory is too low to start the server
         }
+        
+        if (!fs.existsSync(path.join(this.paths.serverContainer, "hoster_policy.txt"))) {
+            try {
+                fs.writeFileSync(path.join(this.paths.serverContainer, "hoster_policy.txt"), "gamedir_for_configs: true");
+            } catch (e) {
+                this.state.error = "Failed to create hoster policy file: " + (e?.code || e?.message || e);
+                this.error("Failed to create hoster policy file: {error}", this.main.lp({ error: e?.code || e?.message || e }));
+                return -10; //Failed to create hoster policy file
+            }
+        } else {
+            let data;
+            try {
+                data = fs.readFileSync(path.join(this.paths.serverContainer, "hoster_policy.txt")).toString();
+            } catch (e) {
+                this.state.error = "Failed to read hoster policy file: " + (e?.code || e?.message || e);
+                this.log("Failed to read hoster policy file: {error}", this.main.lp({ error: e?.code || e?.message || e }));
+                return -10; //Failed to read hoster policy file
+            }
+            if (data != "gamedir_for_configs: true") fs.writeFileSync(path.join(this.paths.serverContainer, "hoster_policy.txt"), "gamedir_for_configs: true");
+        }
+        
         this.log("Starting server", this.main.lp({ consoleColor: 4 }));
 
         this.monitor.enabled = true;
@@ -514,25 +537,7 @@ class Server extends Module {
         this.state.transfering = false;
         this.state.restarting = false;
         this.state.error = null;
-
-        if (!fs.existsSync(path.join(this.paths.serverContainer, "hoster_policy.txt"))) {
-            try {
-                fs.writeFileSync(path.join(this.paths.serverContainer, "hoster_policy.txt"), "gamedir_for_configs: true");
-            } catch (e) {
-                this.log("Failed to create hoster policy file: {error}", this.main.lp({ error: e?.code || e?.message || e }));
-                return -10; //Failed to create hoster policy file
-            }
-        } else {
-            let data;
-            try {
-                data = fs.readFileSync(path.join(this.paths.serverContainer, "hoster_policy.txt")).toString();
-            } catch (e) {
-                this.log("Failed to read hoster policy file: {error}", this.main.lp({ error: e?.code || e?.message || e }));
-                return -10; //Failed to read hoster policy file
-            }
-            if (data != "gamedir_for_configs: true") fs.writeFileSync(path.join(this.paths.serverContainer, "hoster_policy.txt"), "gamedir_for_configs: true");
-        }
-
+        
         let executable = fs.existsSync(path.join(this.paths.serverContainer, "SCPSL.exe")) ? path.join(this.paths.serverContainer, "SCPSL.exe") : fs.existsSync(path.join(this.paths.serverContainer, "SCPSL.x86_64")) ? path.join(this.paths.serverContainer, "SCPSL.x86_64") : null;
         if (executable == null) {
             this.state.error = "Failed to find executable";
@@ -617,7 +622,7 @@ class Server extends Module {
     }
 
     onStateUpdate (data) {
-        if (data.value == data.old) return;
+        if (data.value == data.old || this.pauseStateUpdates) return;
         this.main.vega.send(new ServerOnStateUpdate(this.main.vega, this.id, data));
     }
 

@@ -138,11 +138,13 @@ class serverTransfer {
             return;
         }
         if (this.state == "Cancelled") return;
-        //Server should have started at this point, wait for it to stop;
+        //Server should have started at this point
+        this.server.pauseStateUpdates = true;
         this.state = "Stopping";
         this.server.stop(true);
         await this.server.stop(true); //kill
         if (this.state == "Cancelled") return;
+        this.server.pauseStateUpdates = false;
         this.state = "Waiting";
         this.main.log("Server {server} ready for transfer", this.main.lp({ server: this.server.config.label, consoleColor: 5 }));
         //Ready

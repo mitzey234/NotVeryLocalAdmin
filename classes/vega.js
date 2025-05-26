@@ -202,13 +202,13 @@ class Vega {
         }
     }
 
-    requestAssemblies (label, assemblies) {
+    requestAssemblies (label, serverId) {
         if (this.connected) {
             this.main.log("Requesting assemblies from Vega: {fileLabel}", this.main.lp({consoleColor: 5, fileLabel: label})); 
             let id = this.requestId;
             let prom = {id};
             this.requests.set(id, prom);
-            this.send(new RequestAssemblies(this, label, assemblies, id));
+            this.send(new RequestAssemblies(this, label, serverId, id));
             return this.promise(prom);
         } else {
             this.main.error("Failed to request assemblies from Vega, not connected", this.main.lp({consoleColor: 4}));
