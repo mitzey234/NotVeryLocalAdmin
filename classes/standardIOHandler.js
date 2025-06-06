@@ -147,6 +147,15 @@ class StandardIOHandler {
             }
             if (this.server.main.settings.clearLALogs) this.server.clearLALogs();
             this.server.state.roundStartTime = null;
+            this.server.restartedRecently = true;
+            if (this.server.restartedRecentlyTimeout != null) {
+                clearTimeout(this.server.restartedRecentlyTimeout);
+                this.server.restartedRecentlyTimeout = null;
+            }
+            this.server.restartedRecentlyTimeout = setTimeout(() => {
+                this.server.restartedRecently = false;
+                this.server.restartedRecentlyTimeout = null;
+            }, 15000);
         } else if (code == 21 || code == 20) {
             //ExitActionShutdownEntry or ExitActionSilentShutdownEntry
             if (this.server.state.delayedRestart) this.server.state.delayedRestart = false;

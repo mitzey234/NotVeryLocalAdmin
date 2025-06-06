@@ -41,6 +41,10 @@ class Server extends Module {
 
     pauseStateUpdates = false;
 
+    restartedRecently = false;
+
+    restartedRecentlyTimeout;
+
     get id() {
         return this.config.id;
     }
@@ -468,7 +472,6 @@ class Server extends Module {
 
     async shutdown(force = false) {
         if (this.process == null) return -1; //Server process not active
-        console.log(this.state.starting, this.state.stopping, this.state.delayedStop)
         if ((this.state.stopping && !this.state.delayedStop) || (this.state.starting)) {
             this.log("Killing server", this.main.lp({ consoleColor: 6 }));
             if (this.state.starting == true) {
@@ -476,7 +479,7 @@ class Server extends Module {
                 this.state.stopping = true;
             }
             this.process.kill(9);
-        } else if (this.state.delayedStop || (!this.state.stopping && this.state.players <= 0) || force) {
+        } else if (this.state.delayedStop || (!this.state.stopping && this.state.players <= 0 && !this.restartedRecently) || force) {
             this.log("Force Stopping server", this.main.lp({ consoleColor: 6 }));
             this.state.delayedStop = false;
             this.state.stopping = true;
@@ -486,7 +489,7 @@ class Server extends Module {
                 this.timeout = null;
             }
             this.timeout = setTimeout(serverTimeouts.stopTimeout.bind(this), 1000 * this.config.maximumShutdownTime);
-        } else if (!this.state.stopping && this.state.players > 0) {
+        } else if (!this.state.stopping && this.state.players > 0 && !this.restartedRecently) {
             this.log("Stopping server Delayed", this.main.lp({ consoleColor: 6 }));
             this.command("snr");
         }
@@ -584,23 +587,24 @@ class Server extends Module {
         return this.hooks.promise("start");
     }
 
-    restart(forced = false) {
+    restart(forced = false, shutdownAfter = false) {
         if (this.process == null) return this.start();
         if (this.state.stopping) return -2; //Server stopping
         if (this.state.starting) return -3; //Server restarting
         if (this.state.uninstalling) return -5; //Server uninstalling
         if (this.state.delayedStop) this.command("snr");
-        if (this.state.delayedRestart || (!this.state.restarting && this.state.players <= 0) || forced) {
+        if (this.state.delayedRestart || (!this.state.restarting && this.state.players <= 0 && !this.restartedRecently) || forced) {
             this.log("Force Restarting server", this.main.lp({ color: 6 }));
             this.state.delayedRestart = false;
             this.state.restarting = true;
+            if (shutdownAfter) this.state.stopping = true;
             this.command("softrestart");
             if (this.timeout != null) {
                 clearTimeout(this.timeout);
                 this.timeout = null;
             }
             this.timeout = setTimeout(serverTimeouts.restart.bind(this), 1000 * this.config.maximumRestartTime);
-        } else if (!this.state.restarting && this.state.players > 0 && this.timeout == null) {
+        } else if (!this.state.restarting && (this.state.players > 0 || this.restartedRecently) && this.timeout == null) {
             this.log("Restarting server delayed", this.main.lp({ color: 6 }));
             this.command("rnr");
             this.timeout = setTimeout(serverTimeouts.delayedRestart.bind(this), 2000);
@@ -657,6 +661,11 @@ class Server extends Module {
             clearTimeout(this.timeout);
             this.timeout = null;
         }
+        if (this.restartedRecentlyTimeout != null) {
+            clearTimeout(this.restartedRecentlyTimeout);
+            this.restartedRecentlyTimeout = null;
+        }
+        this.restartedRecently = false;
         this.hooks.resolve("shutdown");
         this.hooks.resolve("restart");
         if (this.state.transfering && this.main.activeTransfers.has(this.config.id) && this.main.activeTransfers.get(this.config.id).direction == "source") {

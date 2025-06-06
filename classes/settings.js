@@ -337,7 +337,7 @@ module.exports.Settings = class Settings extends EventEmitter {
 
   minimumMemoryThreashold = 500000000;
 
-  criticalMemoryThreashold = 100000000;
+  criticalMemoryThreashold = 200000000;
 
   uploadNewFiles = true;
 

@@ -89,12 +89,7 @@ module.exports = class MemoryMonitor extends Module {
       if (s.length > 0) {
         for (let i in s) {
           let server = this.main.servers.get(s[i].uid);
-          if (server.state.starting == false && server.state.restarting == false && server.state.stopping == false) {
-            this.log("Force Restarting server {label} in attempt to save memory! - {formatedBytes}", this.main.lp({label: server.config.label, serverId: server.config.id, bytes: s[i].bytes, formatedBytes: util.formatBytes(s[i].bytes)}));
-            let result = await server.restart(true);
-            if (typeof result == "number") this.main.error("Failed to restart server: {result}", this.main.lp({result: result}));
-            else break;
-          } else if (server.process != null && (server.state.restarting == true || server.state.stopping == true || server.state.starting) && currentFree < 25000000) {
+          if (server.process != null && (server.state.restarting == true || server.state.stopping == true || server.state.starting) && currentFree < 25000000) {
             this.log("Killing server {label} in attempt to save memory! - {formatedBytes}", this.main.lp({label: server.config.label, serverId: server.config.id, bytes: s[i].bytes, formatedBytes: util.formatBytes(s[i].bytes)}));
             try {
               if (server.state.restarting == false && server.state.delayedRestart == false) server.state.stopping = true;

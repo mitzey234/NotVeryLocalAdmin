@@ -146,7 +146,7 @@ module.exports.Main = class Main {
         this.vega.stop();
         this.stopping = true;
         this.SettingChangeHandler.disabled = true;
-        this.servers.forEach(server => server.shutdown(true));
+        this.servers.forEach(server => preserve ? server.restart(true, true) : server.shutdown(true));
         while ([...this.servers.values()].filter(server => server.process != null).length > 0) await Util.Delay(1);
         this.logger.stop();
         if (!preserve) process.exit(0);
