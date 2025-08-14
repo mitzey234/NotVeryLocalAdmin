@@ -5,10 +5,15 @@ const LZMA = require('lzma');
 const EventEmitter = require('events');
 const SteamCrypto = require('@doctormckay/steam-crypto');
 const { fork } = require('child_process');
+const test = require('@mongodb-js/zstd');
 let main;
 
-const VZIP_HEADER = 0x5A56;
-const VZIP_FOOTER = 0x767A;
+const HEADER_ZSTD = 'VSZa';
+const HEADER_VZIP = 'VZa';
+const HEADER_ZIP = 'PK\u0003\u0004';
+
+const FOOTER_ZSTD = 'zsv';
+const FOOTER_VZIP = 'zv';
 
 
 class Decoder extends EventEmitter {
@@ -123,59 +128,108 @@ class IDecoder extends EventEmitter {
 	}
 	
 	unzip(data) {
-		return new Promise((resolve, reject) => {
-			// VZip or zip?
-			if (data.readUInt16LE(0) != VZIP_HEADER) {
-				// Standard zip
-				let unzip = new AdmZip(data);
-				return resolve(unzip.readFile(unzip.getEntries()[0]));
-			} else {
-				// VZip
-				data = ByteBuffer.wrap(data, ByteBuffer.LITTLE_ENDIAN);
-	
-				data.skip(2); // header
-				if (String.fromCharCode(data.readByte()) != 'a') {
-					return reject(new Error('Expected VZip version \'a\''));
-				}
-	
-				data.skip(4); // either a timestamp or a CRC; either way, forget it
-				let properties = data.slice(data.offset, data.offset + 5).toBuffer();
-				data.skip(5);
-	
-				let compressedData = data.slice(data.offset, data.limit - 10);
-				data.skip(compressedData.remaining());
-	
-				let decompressedCrc = data.readUint32();
-				let decompressedSize = data.readUint32();
-				if (data.readUint16() != VZIP_FOOTER) {
-					return reject(new Error('Didn\'t see expected VZip footer'));
-				}
-	
-				let uncompressedSizeBuffer = Buffer.alloc(8);
-				uncompressedSizeBuffer.writeUInt32LE(decompressedSize, 0);
-				uncompressedSizeBuffer.writeUInt32LE(0, 4);
-	
-				LZMA.decompress(Buffer.concat([properties, uncompressedSizeBuffer, compressedData.toBuffer()]), (result, err) => {
-					if (err) {
-						return reject(err);
-					}
-	
-					result = Buffer.from(result); // it's a byte array
-	
-					// Verify the result
-					if (decompressedSize != result.length) {
-						return reject(new Error('Decompressed size was not valid'));
-					}
-	
-					if (StdLib.Hashing.crc32(result) != decompressedCrc) {
-						return reject(new Error('CRC check failed on decompressed data'));
-					}
-	
-					return resolve(result);
-				});
-			}
-		});
+		let headerString = data.slice(0, 4).toString('utf8');
+
+		if (headerString.startsWith(HEADER_ZSTD)) {
+			return decompressZstd(data);
+		}
+
+		if (headerString.startsWith(HEADER_VZIP)) {
+			return decompressVzip(data);
+		}
+
+		if (headerString.startsWith(HEADER_ZIP)) {
+			return decompressZip(data);
+		}
+		throw new Error(`Unknown compression type: ${headerString} (${data.slice(0, 4).toString('hex')})`);
 	}
+}
+
+function decompressZstd(data) {
+	return new Promise((resolve, reject) => {
+		let buffer = ByteBuffer.wrap(data, ByteBuffer.LITTLE_ENDIAN);
+
+		if (buffer.readUTF8String(HEADER_ZSTD.length) != HEADER_ZSTD) {
+			return reject(new Error('Zstd: Didn\'t see expected header'));
+		}
+
+		buffer.skip(4); // CRC but we don't really care, there's another one anyway
+		let compressedData = buffer.slice(buffer.offset, buffer.limit - 15);
+		buffer.skip(compressedData.remaining());
+
+		let decompressedCrc = buffer.readUint32();
+		let decompressedSize = buffer.readUint32();
+		buffer.skip(4); // 0-padding
+		if (buffer.readUTF8String(FOOTER_ZSTD.length) != FOOTER_ZSTD) {
+			return reject(new Error('Zstd: Didn\'t see expected footer'));
+		}
+
+		test.decompress(compressedData.toBuffer()).then((result) => {
+			// Verify the result
+			if (decompressedSize != result.length) {
+				return reject(new Error('Zstd: Decompressed size was not valid'));
+			}
+
+			if (StdLib.Hashing.crc32(result) != decompressedCrc) {
+				return reject(new Error('Zstd: CRC check failed on decompressed data'));
+			}
+
+			return resolve(result);
+		}).catch((err) => {
+			return reject(err);
+		});
+	});
+}
+
+function decompressVzip(data) {
+	return new Promise((resolve, reject) => {
+		let buffer = ByteBuffer.wrap(data, ByteBuffer.LITTLE_ENDIAN);
+
+		if (buffer.readUTF8String(HEADER_VZIP.length) != HEADER_VZIP) {
+			return reject(new Error('VZip: Didn\'t see expected header'));
+		}
+
+		buffer.skip(4); // either a timestamp or a CRC; either way, don't care
+		let properties = buffer.slice(buffer.offset, buffer.offset + 5).toBuffer();
+		buffer.skip(5);
+
+		let compressedData = buffer.slice(buffer.offset, buffer.limit - 10);
+		buffer.skip(compressedData.remaining());
+
+		let decompressedCrc = buffer.readUint32();
+		let decompressedSize = buffer.readUint32();
+		if (buffer.readUTF8String(FOOTER_VZIP.length) != FOOTER_VZIP) {
+			return reject(new Error('VZip: Didn\'t see expected footer'));
+		}
+
+		let uncompressedSizeBuffer = Buffer.alloc(8);
+		uncompressedSizeBuffer.writeUInt32LE(decompressedSize, 0);
+		uncompressedSizeBuffer.writeUInt32LE(0, 4);
+
+		LZMA.decompress(Buffer.concat([properties, uncompressedSizeBuffer, compressedData.toBuffer()]), (result, err) => {
+			if (err) {
+				return reject(err);
+			}
+
+			result = Buffer.from(result); // it's a byte array
+
+			// Verify the result
+			if (decompressedSize != result.length) {
+				return reject(new Error('VZip: Decompressed size was not valid'));
+			}
+
+			if (StdLib.Hashing.crc32(result) != decompressedCrc) {
+				return reject(new Error('VZip: CRC check failed on decompressed data'));
+			}
+
+			return resolve(result);
+		});
+	});
+}
+
+function decompressZip(data) {
+	let unzip = new AdmZip(data);
+	return unzip.readFile(unzip.getEntries()[0]);
 }
 
 if (require.main === module) {

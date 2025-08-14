@@ -354,7 +354,7 @@ class IFileDownloader {
 			method: 'GET',
 			headers: {
 				'Host': server.vhost || server.Host,
-				'User-Agent': 'DepotDownloader/2.7.3',
+				'User-Agent': 'DepotDownloader/3.4.0',
 			},
 			opaque: { data }
 		};
