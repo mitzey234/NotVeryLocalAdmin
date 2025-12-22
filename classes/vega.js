@@ -113,11 +113,11 @@ class Vega {
         this.main.log("Connecting to Vega", this.main.lp({consoleColor: 5}));
         this.error = null;
         this.socket = new Client();
-        this.socket.connect({ port: this.main.settings.Vega.port, host: this.main.settings.Vega.host });
-        this.socket.on('message', this.onMessage.bind(this));
         this.socket.on('error', this.onError.bind(this));
+        this.socket.on('message', this.onMessage.bind(this));
         this.socket.on('close', this.onClose.bind(this));
         this.socket.on('connect', this.onConnect.bind(this));
+        this.socket.connect({ port: this.main.settings.Vega.port, host: this.main.settings.Vega.host });
         this.pingSystem = new pingSystem(this.socket.send.bind(this.socket, {type: "ping"}), this.socket.destroy.bind(this.socket));
     }
 

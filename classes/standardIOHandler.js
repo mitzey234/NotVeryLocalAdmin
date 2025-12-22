@@ -323,8 +323,8 @@ class StandardIOHandler {
     createSocket() {
         return new Promise(function (resolve, reject) {
             let server = new Net.Server();
-            server.on("connection", this.handleServerConnection.bind(this));
             server.on("error", (e) => this.onSocketErr(e) & reject(e));
+            server.on("connection", this.handleServerConnection.bind(this));
             server.listen(0, function (s, resolve) { resolve(s); }.bind(this, server, resolve));
             setTimeout(function (reject) { reject("Socket took too long to open"); }.bind(null, reject), 1000);
         }.bind(this));

@@ -36,13 +36,20 @@ process.on("unhandledRejection", handleCriticalFailure);
 
 function handleCriticalFailure (e) {
     console.error("Critical failure:", e);
-    if (e.code == "ECONNRESET") {
-        console.error("This FUCKING ERROR", e);
+    
+    // Handle network connection errors that should not kill the service
+    if (e.code == "ECONNRESET" || e.code == "ECONNREFUSED" || e.code == "ETIMEDOUT" || e.code == "EPIPE") {
+        console.error("Network error (non-fatal):", e.code, e.message);
         console.trace();
-        var stack = new Error().stack;
-        fs.writeFileSync('crash.txt', e.stack + "\n" + e.message + "\n" + stack);
-        return;
+        try {
+            fs.appendFileSync('networkErrors.log', `[${new Date().toISOString()}] ${e.code}: ${e.message}\n${e.stack}\n\n`);
+        } catch {
+            console.error("Failed to log network error");
+        } // Ignore logging errors
+        return; // Don't exit - allow reconnection logic to handle it
     }
+    
+    // Critical errors that should terminate the process
     setTimeout(process.exit.bind(null, -1), 1000);
     fs.writeFileSync('crashLog.txt', e.stack + "\n" + e.message);
     process.exit(1);
