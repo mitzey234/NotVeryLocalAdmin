@@ -97,6 +97,7 @@ class StandardIOHandler {
                     else if (d[i].indexOf("does not support negative scale or size") > -1) cleanup = true;
                     else if (d[i].indexOf("effective box size has been forced positive") > -1) cleanup = true;
                     else if (d[i].indexOf("If you absolutely need to use negative scaling") > -1) cleanup = true;
+                    else if (d[i].indexOf("Missing **FALLBACK** translation!") > -1) cleanup = true;
                 }
                 if (cleanup == true && this.server.config.cleanLogs) continue;
                 this.verbose(d[i], new LP({ logType: "sdtout", cleanup: cleanup, color: 8 }));

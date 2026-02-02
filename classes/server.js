@@ -69,6 +69,7 @@ class Server extends Module {
         this.downloader = new Downloader(this);
         this.downloader.on("progress", () => this.state.downloadingCount = this.downloader.count); 
         this.state.on("set", this.onStateUpdate.bind(this));
+        this.main.verkeyWatcher.on("update", this.onVerkeyUpdate.bind(this));
 
         if (store) {
             this.main.servers.set(this.id, this);
@@ -284,6 +285,11 @@ class Server extends Module {
         if (typeof result == "number") return result; //Error installing application
         result = await this.configure();
         if (typeof result == "number") return result; //Error configuring server
+    }
+
+    onVerkeyUpdate () {
+        if (this.process == null || !this.monitor.nvlaMonitorInstalled) return;
+        this.command("reloadverkey");
     }
 
     fileRequestError (e) {
@@ -698,7 +704,7 @@ class Server extends Module {
             this.error("Server Startup failed, Exited with {code} - {signal}", this.main.lp({ code: code, signal: signal }));
             if (this.state.error == null) this.state.error = "Server exited during startup, Exited with " + code + " - " + signal;
             this.state.starting = false;
-            if (this.restartCount < 3) {
+            if (this.restartCount < 5) {
                 this.restartCount++;
                 setTimeout(function () { this.start().catch(() => { }); }.bind(this), 500);
                 return;

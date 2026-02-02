@@ -51,7 +51,7 @@ namespace NVLAMonitorPlugin.Utils
 
         public data ()
         {
-            players = Player.List.Where(x => !x.IsServer).Select(x => x.Nickname).ToArray();
+            players = Player.List.Where(x => !x.IsHost).Select(x => x.Nickname).ToArray();
             tps = (int)Math.Round(1.0f / Time.smoothDeltaTime);
         }
     }
