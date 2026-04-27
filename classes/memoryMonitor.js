@@ -68,7 +68,13 @@ module.exports = class MemoryMonitor extends Module {
           if (server.state.delayedRestart == false && server.state.restarting == false && server.state.stopping == false && server.state.delayedStop == false && server.state.starting == false) {
             this.log("Restarting server {label} in attempt to save memory! - {formatedBytes}", this.main.lp({label: server.config.label, serverId: server.config.id, bytes: s[i].bytes, formatedBytes: util.formatBytes(s[i].bytes)}));
             let result = await server.restart(false);
-            if (typeof result == "number") this.main.error("Failed to restart server: {result}", this.main.lp({result: result}));
+            if (typeof result == "number") {
+              this.main.error("Failed to restart server: {result}", this.main.lp({result: result}));
+              result = await server.restart(true);
+              if (typeof result == "number") {
+                this.main.error("Failed to restart server with force: {result}", this.main.lp({result: result}));
+              }
+            }
             else break;
           } else break;
         }
