@@ -93,7 +93,6 @@ class winstonLoggerSeq {
 
     start() {
         if (this.process != null) return;
-        console.log("Starting Winston Seq Logger");
         this.process = fork(path.join(__dirname, "winstonLoggerSeq.js"), {stdio: ["ignore", "pipe", "pipe", "ipc"]});
         this.process.on("message", this.onMessasge.bind(this));
         this.process.on("error", this.onError.bind(this));
@@ -123,7 +122,7 @@ class winstonLoggerSeq {
         this.main.winston.remove(this.transport);
         this.transport.destroy();
         this.writableStream.destroy();
-        this.process.kill();
+        this.process.kill(9);
     }
 
     handlePromise(resolve, reject) {
