@@ -194,7 +194,9 @@ module.exports.SettingChangeHandler = class SettingChangeHandler {
   }
 
   restartSeq() {
+    console.log("2Restarting Seq client to apply new settings");
     if (this.Main.logger.seq.process == null || this.Main.logger.seq.stopping || this.Main.logger.seq.restarting) return;
+    this.Main.log("Restarting Seq client to apply new settings");
     this.Main.logger.seq.restarting = true;
     this.Main.logger.seq.process.kill();
   }
