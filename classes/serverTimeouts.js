@@ -13,6 +13,7 @@ module.exports = {
     /** @this {import("./server")} */
     delayedRestart: function () {
         this.error("{serverName} Setting delayed restart took too long, the server may not be responding!", this.main.lp({serverName: this.config.label}));
+        this.hooks.resolve("restart", -1);
         this.timeout = null;
     },
     /** @this {import("./server")} */
