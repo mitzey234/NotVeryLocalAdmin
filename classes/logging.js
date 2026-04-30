@@ -167,6 +167,7 @@ class winstonLoggerSeq {
 
     onExit(code) {
         this.process = null;
+        console.log("Winston Seq Logger exited", code);
         try {
             this.main.winston.remove(this.transport);
         } catch (e) {
