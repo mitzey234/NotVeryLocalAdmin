@@ -600,16 +600,18 @@ class Server extends Module {
         if (this.state.uninstalling) return -5; //Server uninstalling
         if (this.state.delayedStop) this.command("snr");
         if (this.state.delayedRestart || (!this.state.restarting && this.state.players <= 0 && !this.restartedRecently) || forced) {
-            this.log("Force Restarting server", this.main.lp({ color: 6 }));
-            this.state.delayedRestart = false;
-            this.state.restarting = true;
-            if (shutdownAfter) this.state.stopping = true;
-            this.command("softrestart");
-            if (this.timeout != null) {
-                clearTimeout(this.timeout);
-                this.timeout = null;
+            if (!this.state.restarting) {
+                this.log("Force Restarting server", this.main.lp({ color: 6 }));
+                this.state.delayedRestart = false;
+                this.state.restarting = true;
+                if (shutdownAfter) this.state.stopping = true;
+                this.command("softrestart");
+                if (this.timeout != null) {
+                    clearTimeout(this.timeout);
+                    this.timeout = null;
+                }
+                this.timeout = setTimeout(serverTimeouts.restart.bind(this), 1000 * this.config.maximumRestartTime);
             }
-            this.timeout = setTimeout(serverTimeouts.restart.bind(this), 1000 * this.config.maximumRestartTime);
         } else if (!this.state.restarting && (this.state.players > 0 || this.restartedRecently) && this.timeout == null) {
             this.log("Restarting server delayed", this.main.lp({ color: 6 }));
             this.command("rnr");

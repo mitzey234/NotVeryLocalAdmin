@@ -68,7 +68,7 @@ module.exports = class MemoryMonitor extends Module {
           if (server.state.delayedRestart == false && server.state.restarting == false && server.state.stopping == false && server.state.delayedStop == false && server.state.starting == false) {
             this.log("Restarting server {label} in attempt to save memory! - {formatedBytes}", this.main.lp({label: server.config.label, serverId: server.config.id, bytes: s[i].bytes, formatedBytes: util.formatBytes(s[i].bytes)}));
             let result = await server.restart(false);
-            if (typeof result == "number") {
+            if (typeof result == "number" && server.state.restarting != true) {
               this.main.error("Failed to restart server: {result}", this.main.lp({result: result}));
               result = await server.restart(true);
               if (typeof result == "number") {
@@ -95,11 +95,12 @@ module.exports = class MemoryMonitor extends Module {
       if (s.length > 0) {
         for (let i in s) {
           let server = this.main.servers.get(s[i].uid);
-          if (server.process != null && (server.state.restarting == true || server.state.stopping == true || server.state.starting) && currentFree < 25000000) {
+          if (server.process != null && (server.state.restarting == true || server.state.stopping == true || server.state.starting) && currentFree < this.main.settings.criticalMemoryThreashold) {
             this.log("Killing server {label} in attempt to save memory! - {formatedBytes}", this.main.lp({label: server.config.label, serverId: server.config.id, bytes: s[i].bytes, formatedBytes: util.formatBytes(s[i].bytes)}));
             try {
-              if (server.state.restarting == false && server.state.delayedRestart == false) server.state.stopping = true;
-              server.process.kill();
+              if (server.state.stopping == true && server.state.delayedStop == true) server.state.stopping = false;
+              if (server.state.restarting == false && server.state.delayedRestart == false) server.state.restarting = true;
+              server.process.kill(9);
             } catch {} //Ignore failures
             break;
           } else break;
