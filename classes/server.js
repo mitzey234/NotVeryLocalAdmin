@@ -509,7 +509,7 @@ class Server extends Module {
         if (this.state.updating) return -4; //Server is updating
         if (this.state.configuring) return -5; //Server is configuring
         if (this.state.uninstalling) return -10; //Server is uninstalling
-        if (this.main.stopped) return -11; //Prevent starting when NVLA is shutting down
+        if (this.main.stopping) return -11; //Prevent starting when NVLA is shutting down
 
         await this.main.memoryMonitor.checkMemory();
         if (this.main.memoryMonitor.lowMemory) {
@@ -599,8 +599,8 @@ class Server extends Module {
         if (this.state.starting) return -3; //Server restarting
         if (this.state.uninstalling) return -5; //Server uninstalling
         if (this.state.delayedStop) this.command("snr");
-        if (this.state.delayedRestart || (!this.state.restarting && this.state.players <= 0 && !this.restartedRecently) || forced) {
-            if (!this.state.restarting) {
+        if ((!this.state.restarting && this.state.players <= 0 && !this.restartedRecently) || forced) {
+            if (this.hooks.restart.length == 0) {
                 this.log("Force Restarting server", this.main.lp({ color: 6 }));
                 this.state.delayedRestart = false;
                 this.state.restarting = true;
@@ -615,7 +615,7 @@ class Server extends Module {
         } else if (!this.state.restarting && (this.state.players > 0 || this.restartedRecently) && this.timeout == null) {
             this.log("Restarting server delayed", this.main.lp({ color: 6 }));
             this.command("rnr");
-            this.timeout = setTimeout(serverTimeouts.delayedRestart.bind(this), 2000);
+            this.timeout = setTimeout(serverTimeouts.delayedRestart.bind(this), 7500);
         }
         return this.hooks.promise("restart");
     }
@@ -695,7 +695,7 @@ class Server extends Module {
             return;
         }
         if (this.state.restarting) {
-            if (this.main.stopped) return; //Prevent starting when NVLA is shutting down
+            if (this.main.stopping) return; //Prevent starting when NVLA is shutting down
             this.log("Server Restarting", this.main.lp({ color: 2 }));
             this.state.restarting = false;
             this.state.starting = false;

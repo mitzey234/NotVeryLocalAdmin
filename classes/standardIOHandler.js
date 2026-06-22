@@ -162,16 +162,15 @@ class StandardIOHandler {
             if (this.server.state.delayedRestart) this.server.state.delayedRestart = false;
             if (this.server.state.stopping && this.server.state.delayedStop) {
                 this.server.state.delayedStop = false;
-                this.server.hooks.resolve("shutdown", -9); //User cancelled
             } else if (this.server.state.stopping && !this.server.state.delayedStop) {
                 this.server.state.delayedStop = false;
-                this.server.hooks.resolve("shutdown", -9); //User cancelled
             } else {
                 this.server.state.stopping = true;
                 this.server.state.delayedStop = true;
                 if (this.server.timeout) {
                     clearTimeout(this.server.timeout);
                     this.server.timeout = null;
+                    this.server.hooks.resolve("shutdown", 1); //Restarting delayed
                 }
             }
         } else if (code == 22) {
@@ -179,16 +178,15 @@ class StandardIOHandler {
             if (this.server.state.delayedStop) this.server.state.delayedStop = false;
             if (this.server.state.restarting && this.server.state.delayedRestart) {
                 this.server.state.delayedRestart = false;
-                this.server.hooks.resolve("restart", -9); //User cancelled
             } else if (this.server.state.restarting && !this.server.state.delayedRestart) {
                 this.server.state.delayedRestart = false;
-                this.server.hooks.resolve("restart", -9); //User cancelled
             } else {
                 this.server.state.restarting = true;
                 this.server.state.delayedRestart = true;
                 if (this.server.timeout) {
                     clearTimeout(this.server.timeout);
                     this.server.timeout = null;
+                    this.server.hooks.resolve("restart", 1); //Restarting delayed
                 }
             }
         } else if (code == 19) {

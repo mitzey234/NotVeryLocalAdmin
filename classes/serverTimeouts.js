@@ -20,6 +20,7 @@ module.exports = {
     restart: function () {
         this.error("{serverName} Restart took too long, forcing", this.main.lp({serverName: this.config.label}));
         this.timeout = null;
+        this.hooks.resolve("restart", 0);
         this.process.kill(9);
     },
     stopTimeout: function () {

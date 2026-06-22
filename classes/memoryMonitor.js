@@ -95,7 +95,7 @@ module.exports = class MemoryMonitor extends Module {
       if (s.length > 0) {
         for (let i in s) {
           let server = this.main.servers.get(s[i].uid);
-          if (server.process != null && (server.state.restarting == true || server.state.stopping == true || server.state.starting) && currentFree < this.main.settings.criticalMemoryThreashold) {
+          if (server.process != null && (server.state.restarting == true || server.state.stopping == true || server.state.starting || server.timeout != null) && currentFree < this.main.settings.criticalMemoryThreashold) {
             this.log("Killing server {label} in attempt to save memory! - {formatedBytes}", this.main.lp({label: server.config.label, serverId: server.config.id, bytes: s[i].bytes, formatedBytes: util.formatBytes(s[i].bytes)}));
             try {
               if (server.state.stopping == true && server.state.delayedStop == true) server.state.stopping = false;
