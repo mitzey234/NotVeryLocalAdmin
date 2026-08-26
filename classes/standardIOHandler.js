@@ -98,6 +98,7 @@ class StandardIOHandler {
                     else if (d[i].indexOf("effective box size has been forced positive") > -1) cleanup = true;
                     else if (d[i].indexOf("If you absolutely need to use negative scaling") > -1) cleanup = true;
                     else if (d[i].indexOf("Missing **FALLBACK** translation!") > -1) cleanup = true;
+                    else if (d[i].indexOf("a section of your serialized properties in any of your scripts") > -1) cleanup = true;
                 }
                 if (cleanup == true && this.server.config.cleanLogs) continue;
                 this.verbose(d[i], new LP({ logType: "sdtout", cleanup: cleanup, color: 8 }));
@@ -156,7 +157,7 @@ class StandardIOHandler {
             this.server.restartedRecentlyTimeout = setTimeout(() => {
                 this.server.restartedRecently = false;
                 this.server.restartedRecentlyTimeout = null;
-            }, 15000);
+            }, 60000);
         } else if (code == 21 || code == 20) {
             //ExitActionShutdownEntry or ExitActionSilentShutdownEntry
             if (this.server.state.delayedRestart) this.server.state.delayedRestart = false;

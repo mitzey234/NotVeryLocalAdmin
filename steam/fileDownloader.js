@@ -1,6 +1,4 @@
-const settings = require("./settings");
 const EventEmitter = require('events');
-const File = require("./manifest").File;
 const Worker = require("./decompressor");
 const Util = require("./Util");
 const Chunk = require("./manifest").Chunk;
@@ -11,6 +9,7 @@ const ContentServer = require("./contentServer");
 const { Client } = require('undici');
 const { Writable } = require('stream');
 const FS = require("fs");
+const os = require('os');
 
 /** @type settings */
 let config;
@@ -252,6 +251,10 @@ class IFileDownloader {
     constructor (config) {
         this.config = config;
         for (let i = 0; i < this.config.decodeWorkers; i++) {
+            if (os.freemem() < 300 * 1024 * 1024 && this.workers.length > 0) {
+                console.error("Not enough free memory to start a new decoder worker, skipping worker creation");
+                break;
+            }
             let worker = new Worker(this.config);
             worker.on("finish", this.onChunkComplete.bind(this, worker)); // Handle file completion
             worker.on("error", this.onError.bind(this)); // Handle worker errors

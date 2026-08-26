@@ -12,6 +12,7 @@ const File = require("./manifest").File;
 const EDepotFileFlag = require('steam-user/enums/EDepotFileFlag.js');
 const { States } = require("./Util");
 const FS = require('fs');
+const os = require('os');
 
 class Steam extends EventEmitter {
     /** @type settings */
@@ -214,6 +215,8 @@ class Steam extends EventEmitter {
     }
 
     startWorker () {
+        //Check that theres at least 300MB of free memory before starting a new worker
+        if (os.freemem() < 300 * 1024 * 1024 && this.workers.length > 0) return this.onError(new Error("Not enough free memory to start a new worker, skipping worker creation"));
         let worker = new Worker(this.config);
         worker.on("finish", this.onFileComplete.bind(this, worker)); // Handle file completion
         worker.on("chunkComplete", chunk => this.downloaded += chunk.cb_original);

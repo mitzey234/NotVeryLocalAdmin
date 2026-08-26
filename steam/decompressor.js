@@ -110,7 +110,6 @@ class Decoder extends EventEmitter {
 }
 
 class IDecoder extends EventEmitter {
-
 	onMessage (m) {
 		this.decode(m.sha, Buffer.from(m.data.data), Buffer.from(m.key));
 	}
