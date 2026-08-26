@@ -251,7 +251,7 @@ class IFileDownloader {
     constructor (config) {
         this.config = config;
         for (let i = 0; i < this.config.decodeWorkers; i++) {
-            if (os.freemem() < 300 * 1024 * 1024 && this.workers.length > 0) {
+            if (os.freemem() < 500 * 1024 * 1024 && this.workers.length > 0) {
                 console.error("Not enough free memory to start a new decoder worker, skipping worker creation");
                 break;
             }
