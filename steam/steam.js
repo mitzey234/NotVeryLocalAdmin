@@ -248,6 +248,7 @@ class Steam extends EventEmitter {
             this.product = await this.cdn.getProductInfo([appId], []);
         } catch (e) {
             this.reset(); // Reset the state if there's an error
+            console.error(e);
             throw e; //Pass the error along
         }
 
@@ -257,6 +258,7 @@ class Steam extends EventEmitter {
             this.depots = await this.getDepots();
         } catch (e) {
             this.reset(); // Reset the state if there's an error
+            console.error(e);
             throw e; //Pass the error along
         }
 
@@ -266,6 +268,7 @@ class Steam extends EventEmitter {
             this.keys = await this.getKeys();
         } catch (e) {
             this.reset(); // Reset the state if there's an error
+            console.error(e);
             throw e; //Pass the error along
         }
 
@@ -276,6 +279,7 @@ class Steam extends EventEmitter {
             this.manifests = await this.getManifests(branch, password);
         } catch (e) {
             this.reset(); // Reset the state if there's an error
+            console.error(e);
             throw e; //Pass the error along
         }
 
@@ -285,6 +289,7 @@ class Steam extends EventEmitter {
             this.servers = await this.getServers(appId);
         } catch (e) {
             this.reset(); // Reset the state if there's an error
+            console.error(e);
             throw e; //Pass the error along
         }
 
@@ -299,6 +304,7 @@ class Steam extends EventEmitter {
             let e = new Error("Failed to download app");
             e.proms = proms.filter(e => e != true);
             if (this.state == States.Destroying) e = new Error("Download was canceled");
+            console.error(e);
             throw e; //Pass the error along
         }
         this.reset();

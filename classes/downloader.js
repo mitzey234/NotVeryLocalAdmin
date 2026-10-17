@@ -66,7 +66,7 @@ module.exports = class Downloader extends EventEmitter {
         if (this.inProgress.size == 0 && this.queue.size == 0) return this.complete();
         if (this.queue.size == 0 || this.inProgress.size >= this.main.main.settings.maxConcurrentDownloads) return;
         if (this.inProgress.size > 0 && os.freemem() < 500 * 1024 * 1024 && this.workers.length > 0) {
-            this.main.error("Not enough free memory to start another download, skipping download", this.main.main.lp({consoleColor: 4}));
+            this.main.error("Not enough free memory to start another download, skipping download", this.main.main.lp({consoleColor: 4})); 
             return;
         }
         let download = this.queue.values().next().value;
